@@ -80,11 +80,10 @@ public class FixReadBuilder {
                         }
                     }
                     if (!found) {
-                        if (!namedFixStruct.containsKey(component.getName())) {
-                            final FixStruct fixStruct = computeFixStruct(namedFixStruct, null, component);
-                            namedFixStruct.put(component.getName(), fixStruct);
+                        FixStruct fixStruct = namedFixStruct.get(component.getName());
+                        if (fixStruct == null) {
+                            fixStruct = computeFixStruct(namedFixStruct, null, component);
                         }
-                        final FixStruct fixStruct = namedFixStruct.get(component.getName());
                         FieldReader reader = new NoFieldComponentReaderImpl(fixStruct);
                         allSubFor(fieldReaders, component, reader);
                     }
@@ -121,7 +120,7 @@ public class FixReadBuilder {
                     if (type != null) {
                         for (Field field : type.getFields()) {
                             if (field instanceof GlobArrayField globArrayField) {
-                                if (field.findOptAnnotation(FixGroupType.UNIQUE_KEY)
+                                if (globArrayField.getTargetType().findOptAnnotation(FixGroupType.UNIQUE_KEY)
                                         .map(FixGroupType.name)
                                         .filter(id -> Objects.equals(id, countField.getName())).isPresent()) {
                                     if (found) {

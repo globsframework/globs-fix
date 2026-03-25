@@ -1,5 +1,6 @@
 package org.globsframework.fix.deserializer;
 
+import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
@@ -30,6 +31,7 @@ class FixReaderImpl implements FixReader {
     private int messageLen;
     private int currentReadId;
     private StringField msgTypeField;
+    private String msgType;
 
     public FixReaderImpl(ByteReader reader, Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixModel fixModel, byte sep) {
         this.reader = reader;
@@ -42,17 +44,18 @@ class FixReaderImpl implements FixReader {
                 .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
                         .map(FixFieldType.name).filter(s -> s.equals("MsgType")).isPresent())
                 .findFirst().map(Field::asStringField)
-                .orElseThrow(() -> new IllegalStateException("MsgType field not found"));
+                .orElse(null);
     }
-
 
     @Override
     public FixMessageValue read() {
         Glob header = readHeader();
-        final String msgType = header.get(msgTypeField);
         final FixStruct messageStruct = messages.get(msgType);
+        if (messageStruct == null) {
+            throw new RuntimeException("msgType " + msgType + " not expected.");
+        }
         Glob data = readData(messageStruct);
-        while (readNext());
+        while (readNext()) ;
         int check = msgCheck % 256;
         // we read the 6 octets for checkum (2 octets) = value (3 octets)
         if (pos + 6 > buffer.length) {
@@ -81,8 +84,11 @@ class FixReaderImpl implements FixReader {
         msgCheck = 0;
         messageLen = 1000; // first read break on separator and we don't known yet the message len
         // read fix version
-        readNext();
+        if (!readNext()) {
+            throw new RuntimeException("Missing FIX header");
+        }
         int fixId = getIntAt(startAt, equalAt, buffer);
+        checkId(fixId, 8);
         // todo : check the fieldId
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
@@ -91,20 +97,80 @@ class FixReaderImpl implements FixReader {
         }
 
         //read message len
-        readNext();
+        if (!readNext()) {
+            throw new RuntimeException("Missing len");
+        }
         int msgLenId = getIntAt(startAt, equalAt, buffer);
-        // todo : check the fieldId
+        checkId(msgLenId, 9);
         messageLen = getIntAt(equalAt + 1, endAt, buffer);
         msgReadLen = 0;
         if (!readNext()) {
             return null;
         }
-        return readData(header);
+        int msgTypeId = getIntAt(startAt, equalAt, buffer);
+        checkId(msgTypeId, 35);
+        msgType = new String(buffer, equalAt + 1, endAt - equalAt - 1, StandardCharsets.US_ASCII);
+
+        if (!readNext()) {
+            return null;
+        }
+        final MutableGlob glob = readData(header);
+        if (msgTypeField != null) {
+            glob.set(msgTypeField, msgType);
+        }
+        return glob;
     }
 
-    Glob readData(FixStruct fixStruct) {
-        final MutableGlob data = fixStruct.getType().instantiate();
-        while (currentReadId != lastId) {
+    private static void checkId(int actualId, int wantedId) {
+        if (actualId != wantedId) {
+            throw new RuntimeException("Expect code " + wantedId + " but got " + actualId);
+        }
+    }
+
+    MutableGlob readData(FixStruct fixStruct) {
+        final GlobType type = fixStruct.getType();
+        if (type == null) {
+            skip(fixStruct);
+            return null;
+        } else {
+            return read(fixStruct, type);
+        }
+    }
+
+    private void skip(FixStruct fixStruct) {
+        while (currentReadId != -1) {
+            final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
+            if (fieldReader == null) { // do not belong to this object, so it belong to one ot it's parent
+                return;
+            }
+            switch (fieldReader) {
+                case ComponentReader componentReader -> {
+                    final FixStruct component = componentReader.getComponent();
+                    readData(component);
+                }
+                case DirectFieldReader directFieldReader -> {
+                    if (!readNext()) {
+                        return;
+                    }
+                }
+                case GroupReader groupReader -> {
+                    final int groupCount = getIntAt(equalAt + 1, endAt, buffer);
+                    if (groupCount == 0) {
+                        readNext();
+                    } else {
+                        if (!readNext()) {
+                            throw new RuntimeException("End message reached");
+                        }
+                        skip(groupReader.sub());
+                    }
+                }
+            }
+        }
+    }
+
+    private MutableGlob read(FixStruct fixStruct, GlobType type) {
+        final MutableGlob data = type.instantiate();
+        while (currentReadId != -1) {
             final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
             if (fieldReader == null) { // do not belong to this object, so it belong to one ot it's parent
                 return data;
@@ -126,8 +192,15 @@ class FixReaderImpl implements FixReader {
                 case GroupReader groupReader -> {
                     final int groupCount = getIntAt(equalAt + 1, endAt, buffer);
                     Glob[] group = new Glob[groupCount];
-                    for (int i = 0; i < groupCount; i++) {
-                        group[i] = readData(groupReader.sub());
+                    if (groupCount == 0) {
+                        readNext();
+                    } else {
+                        if (!readNext()) {
+                            throw new RuntimeException("End message reached");
+                        }
+                        for (int i = 0; i < groupCount; i++) {
+                            group[i] = readData(groupReader.sub());
+                        }
                     }
                     groupReader.update(group, data);
                 }
@@ -147,6 +220,7 @@ class FixReaderImpl implements FixReader {
 
     public boolean readNext() {
         if (messageLen == msgReadLen) {
+            currentReadId = -1;
             return false;
         }
         startAt = pos;

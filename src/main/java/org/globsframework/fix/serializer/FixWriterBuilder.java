@@ -16,13 +16,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class FixWriterBuilder {
-
     private static final Logger log = LoggerFactory.getLogger(FixWriterBuilder.class);
+    private static final Set<Integer> headerFieldToIgnore = Set.of(8, 9, 35);
     private final Map<GlobType, FieldWrite> writerPerMessageType;
+    private final Map<GlobType, byte[]> messageTypePerType;
     private final FixModel fixModel;
 
-    public FixWriterBuilder(Map<GlobType, FieldWrite> writerPerMessageType, FixModel fixModel) {
+    public FixWriterBuilder(Map<GlobType, FieldWrite> writerPerMessageType, Map<GlobType, byte[]> messageTypePerType, FixModel fixModel) {
         this.writerPerMessageType = writerPerMessageType;
+        this.messageTypePerType = messageTypePerType;
         this.fixModel = fixModel;
     }
 
@@ -41,19 +43,26 @@ public class FixWriterBuilder {
 
         Map<GlobType, FieldWrite> writerPerMessageType = new HashMap<>();
 
+        Map<GlobType, byte[]> messageTypePerType = new HashMap<>();
         for (FixMessage message : fixModel.getMessages()) {
             final List<FixElement> elements = message.getElements();
             final GlobType messageType = messageTypeMap.get(message.getName());
             if (messageType == null) {
                 log.info("Glob type type not found for message: " + message.getName());
-            }
-            else {
+            } else {
                 final List<FieldWrite> orCreate = getOrCreate(writerPerType, elements, messageType);
                 writerPerMessageType.put(messageType, new MessageFieldWrite(orCreate));
+                messageTypePerType.put(messageType, message.getMsgType().getBytes(StandardCharsets.US_ASCII));
             }
         }
-        writerPerMessageType.put(headerType, new MessageFieldWrite(getOrCreate(writerPerType, fixModel.getHeader().getElements(), headerType)));
-        return new FixWriterBuilder(writerPerMessageType, fixModel);
+        writerPerMessageType.put(headerType,
+                new MessageFieldWrite(getOrCreate(writerPerType, fixModel.getHeader()
+                        .getElements()
+                        .stream()
+                        .filter(fixElement -> !(fixElement instanceof FixField) ||
+                                              !headerFieldToIgnore.contains(((FixField) fixElement).getId()))
+                        .toList(), headerType)));
+        return new FixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel);
     }
 
     private static List<FieldWrite> getOrCreate(Map<GlobType, List<FieldWrite>> types, List<FixElement> elements, GlobType messageType) {
@@ -70,27 +79,31 @@ public class FixWriterBuilder {
         final List<FieldWrite> fieldWrites = new ArrayList<>();
         Map<String, Field> fields = new HashMap<>();
         for (Field field : messageType.getFields()) {
-            field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
-                    .map(FixFieldType.name)
-                    .ifPresent(s -> {
-                        if (fields.put(s, field) != null) {
-                            throw new RuntimeException("Duplicate field name " + s + " on " + field.getFullName());
-                        }
-                    });
-            field.findOptAnnotation(FixComponentType.UNIQUE_KEY)
-                    .map(FixComponentType.name)
-                    .ifPresent(s -> {
-                        if (fields.put(s, field) != null) {
-                            throw new RuntimeException("Duplicate component name " + s + " on " + field.getFullName());
-                        }
-                    });
-            field.findOptAnnotation(FixGroupType.UNIQUE_KEY)
-                    .map(FixGroupType.name)
-                    .ifPresent(s -> {
-                        if (fields.put(s, field) != null) {
-                            throw new RuntimeException("Duplicate group name " + s + " on " + field.getFullName());
-                        }
-                    });
+            switch (field) {
+                case GlobArrayField gal -> gal.getTargetType().findOptAnnotation(FixGroupType.UNIQUE_KEY)
+                        .map(FixGroupType.name)
+                        .ifPresent(s -> {
+                            if (fields.put(s, field) != null) {
+                                throw new RuntimeException("Duplicate group name " + s + " on " + field.getFullName());
+                            }
+                        });
+                case GlobField gl -> gl.getTargetType().findOptAnnotation(FixComponentType.UNIQUE_KEY)
+                        .map(FixComponentType.name)
+                        .ifPresent(s -> {
+                            if (fields.put(s, field) != null) {
+                                throw new RuntimeException("Duplicate component name " + s + " on " + field.getFullName());
+                            }
+                        });
+                default -> field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
+                        .map(FixFieldType.name)
+                        .ifPresent(s -> {
+                            if (fields.put(s, field) != null) {
+                                throw new RuntimeException("Duplicate field name " + s + " on " + field.getFullName());
+                            }
+                        });
+            }
+
+
         }
         for (FixElement element : elements) {
             switch (element) {
@@ -150,7 +163,7 @@ public class FixWriterBuilder {
     }
 
     public FixWriter createWriter(FixWriterImpl.Publish publish) {
-        return new FixWriterImpl(fixModel, publish, writerPerMessageType);
+        return new FixWriterImpl(fixModel, publish, writerPerMessageType, messageTypePerType);
     }
 
     public interface FixWriter {
