@@ -30,6 +30,11 @@ public class FixModelImpl implements FixModel {
     }
 
     @Override
+    public FixTrailer getTrailer() {
+        return fixTrailer;
+    }
+
+    @Override
     public FixHeader getHeader() {
         return fixHeader;
     }

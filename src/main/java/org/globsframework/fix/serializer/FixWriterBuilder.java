@@ -18,6 +18,7 @@ import java.util.*;
 public class FixWriterBuilder {
     private static final Logger log = LoggerFactory.getLogger(FixWriterBuilder.class);
     private static final Set<Integer> headerFieldToIgnore = Set.of(8, 9, 35);
+    private static final Set<Integer> trailerFieldToIgnore = Set.of(10);
     private final Map<GlobType, FieldWrite> writerPerMessageType;
     private final Map<GlobType, byte[]> messageTypePerType;
     private final FixModel fixModel;
@@ -28,7 +29,8 @@ public class FixWriterBuilder {
         this.fixModel = fixModel;
     }
 
-    public static FixWriterBuilder create(FixModel fixModel, GlobModel globModel, GlobType headerType) {
+    public static FixWriterBuilder create(FixModel fixModel, GlobModel globModel,
+                                          GlobType headerType, GlobType trailerType) {
 
         Map<GlobType, List<FieldWrite>> writerPerType = new HashMap<>();
 
@@ -62,6 +64,14 @@ public class FixWriterBuilder {
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
                                               !headerFieldToIgnore.contains(((FixField) fixElement).getId()))
                         .toList(), headerType)));
+
+        writerPerMessageType.put(trailerType,
+                new MessageFieldWrite(getOrCreate(writerPerType, fixModel.getTrailer()
+                        .getElements()
+                        .stream()
+                        .filter(fixElement -> !(fixElement instanceof FixField) ||
+                                              !trailerFieldToIgnore.contains(((FixField) fixElement).getId()))
+                        .toList(), trailerType)));
         return new FixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel);
     }
 
@@ -164,10 +174,6 @@ public class FixWriterBuilder {
 
     public FixWriter createWriter(FixWriterImpl.Publish publish) {
         return new FixWriterImpl(fixModel, publish, writerPerMessageType, messageTypePerType);
-    }
-
-    public interface FixWriter {
-        void write(Glob header, Glob message);
     }
 
     private static class ComponentFieldWrite implements FieldWrite {

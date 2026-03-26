@@ -2,6 +2,7 @@ package org.globsframework.fix.deserializer;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
@@ -15,12 +16,15 @@ import java.util.Map;
 class FixReaderImpl implements FixReader {
     public static final int lastId = 10;
     private final FixStruct header;
+    private final FixStruct trailer;
     private final Map<String, FixStruct> messages;
     private final ByteReader reader;
     private final byte[] buffer = new byte[10024];
     private final FixModel fixModel;
     private final byte sep;
     private final byte[] version;
+    private final IntegerField checkSumField;
+    private final StringField msgTypeField;
     private int pos = 0;
     private int length = 0;
     private int startAt;
@@ -30,21 +34,27 @@ class FixReaderImpl implements FixReader {
     private int msgReadLen;
     private int messageLen;
     private int currentReadId;
-    private StringField msgTypeField;
     private String msgType;
 
-    public FixReaderImpl(ByteReader reader, Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixModel fixModel, byte sep) {
+    public FixReaderImpl(ByteReader reader, Map<String, FixStruct> messageFixStruct,
+                         FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel, byte sep) {
         this.reader = reader;
+        this.trailer = fixTrailer;
         version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
         this.messages = messageFixStruct;
         this.header = fixHeader;
         this.fixModel = fixModel;
         this.sep = sep;
-        msgTypeField = Arrays.stream(fixHeader.getType().getFields())
+        msgTypeField = header.getType() != null ? Arrays.stream(header.getType().getFields())
                 .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
                         .map(FixFieldType.name).filter(s -> s.equals("MsgType")).isPresent())
                 .findFirst().map(Field::asStringField)
-                .orElse(null);
+                .orElse(null) : null;
+        checkSumField = trailer.getType() != null ? Arrays.stream(trailer.getType().getFields())
+                .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
+                        .map(FixFieldType.name).filter(s -> s.equals("CheckSum")).isPresent())
+                .findFirst().map(Field::asIntegerField)
+                .orElse(null) : null;
     }
 
     @Override
@@ -55,8 +65,20 @@ class FixReaderImpl implements FixReader {
             throw new RuntimeException("msgType " + msgType + " not expected.");
         }
         Glob data = readData(messageStruct);
-        while (readNext()) ;
+
+        MutableGlob trailer = readData(this.trailer);
+
         int check = msgCheck % 256;
+
+        readChecksum(check);
+
+        if (checkSumField != null) {
+            trailer.set(checkSumField, check);
+        }
+        return new FixMessageValue(header, data, trailer);
+    }
+
+    private void readChecksum(int check) {
         // we read the 6 octets for checkum (2 octets) = value (3 octets)
         if (pos + 6 > buffer.length) {
             System.arraycopy(buffer, pos, buffer, 0, buffer.length - pos);
@@ -77,7 +99,6 @@ class FixReaderImpl implements FixReader {
         if (checkSum != check) {
             throw new RuntimeException("Invalid checksum " + checkSum + " != " + check);
         }
-        return new FixMessageValue(header, data, null);
     }
 
     public Glob readHeader() {
@@ -89,7 +110,6 @@ class FixReaderImpl implements FixReader {
         }
         int fixId = getIntAt(startAt, equalAt, buffer);
         checkId(fixId, 8);
-        // todo : check the fieldId
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
             throw new RuntimeException("invalid version. " + fixModel.getVersion() + " was expected but gor " +

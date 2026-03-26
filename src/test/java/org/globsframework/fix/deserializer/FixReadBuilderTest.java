@@ -7,6 +7,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.GlobField;
+import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
@@ -18,9 +19,9 @@ import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
+import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.FixWriterImpl;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -43,27 +44,34 @@ class FixReadBuilderTest {
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE);
-        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel,
+                HeaderType.TYPE, TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
-        final FixWriterBuilder.FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
+        final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
             @Override
-            public void publish(byte[] data, int start, int end) {
-                datas.add(Arrays.copyOfRange(data, start, end));
+            public void publish(byte[] data, int offset, int length) {
+                datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
         });
 
-        writer.write(HeaderType.create("AA", "BB"), HeartbeatType.create("req"));
+        writer.write(HeaderType.create("AA", "BB"), HeartbeatType.create("req"),
+                TrailerType.create("sign"));
 
         assertEquals(1, datas.size());
 
-        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
         final FixMessageValue read = reader.read();
         assertNotNull(read);
         assertEquals("AA", read.header().get(HeaderType.SenderCompID));
         assertEquals("BB", read.header().get(HeaderType.TargetCompID));
         assertEquals("req", read.message().get(HeartbeatType.TestReqID));
+        assertEquals("0", read.header().get(HeaderType.MsgType));
+
+        assertNotNull(read.trailer());
+        assertEquals("sign", read.trailer().get(TrailerType.Signature));
+        assertEquals(172, read.trailer().get(TrailerType.CheckSum));
     }
 
     @Test
@@ -73,24 +81,24 @@ class FixReadBuilderTest {
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE, LogonType.TYPE);
-        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
-        final FixWriterBuilder.FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
+        final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
             @Override
-            public void publish(byte[] data, int start, int end) {
-                datas.add(Arrays.copyOfRange(data, start, end));
+            public void publish(byte[] data, int offset, int length) {
+                datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
         });
 
         MutableGlob login = LogonType.create("crypt", LogonType.GroupMsgTypes.create("1", "1"),
                 LogonType.GroupMsgTypes.create("2", "1"));
 
-        writer.write(HeaderType.create("AA", "BB"), login);
+        writer.write(HeaderType.create("AA", "BB"), login, null);
 
         assertEquals(1, datas.size());
 
-        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
         final FixMessageValue read = reader.read();
         assertNotNull(read);
@@ -115,13 +123,13 @@ class FixReadBuilderTest {
 
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE, LogonType.TYPE,
                 IndicationOfInterestType.TYPE, IndicationOfInterestType.InstrumentType.TYPE, IndicationOfInterestType.SecurityAltType.TYPE);
-        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
-        final FixWriterBuilder.FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
+        final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
             @Override
-            public void publish(byte[] data, int start, int end) {
-                datas.add(Arrays.copyOfRange(data, start, end));
+            public void publish(byte[] data, int offset, int length) {
+                datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
         });
 
@@ -130,11 +138,11 @@ class FixReadBuilderTest {
                         IndicationOfInterestType.SecurityAltType.create("s1"),
                         IndicationOfInterestType.SecurityAltType.create("s2")));
 
-        writer.write(HeaderType.create("AA", "BB"), msg);
+        writer.write(HeaderType.create("AA", "BB"), msg, null);
 
         assertEquals(1, datas.size());
 
-        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE);
+        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
         final FixMessageValue read = reader.read();
         assertNotNull(read);
@@ -175,6 +183,27 @@ class FixReadBuilderTest {
                     FixFieldType.create("SenderCompID"));
             TargetCompID = typeBuilder.declareStringField("TargetCompID", FixFieldType.create("TargetCompID"));
             MsgType = typeBuilder.declareStringField("MsgType", FixFieldType.create("MsgType"));
+            TYPE = typeBuilder.build();
+        }
+    }
+
+    public static class TrailerType {
+        public static final GlobType TYPE;
+
+        public static final StringField Signature;
+
+        public static final IntegerField CheckSum;
+
+        public static Glob create(String signature) {
+            return TYPE.instantiate()
+                    .set(Signature, signature);
+        }
+
+        static {
+            final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("TrailerType");
+            Signature = typeBuilder.declareStringField("Signature",
+                    FixFieldType.create("Signature"));
+            CheckSum = typeBuilder.declareIntegerField("CheckSum", FixFieldType.create("CheckSum"));
             TYPE = typeBuilder.build();
         }
     }

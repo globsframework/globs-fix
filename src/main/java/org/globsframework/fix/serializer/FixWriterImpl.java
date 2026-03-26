@@ -7,7 +7,7 @@ import org.globsframework.fix.dictionary.FixModel;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-public class FixWriterImpl implements FixWriterBuilder.FixWriter {
+public class FixWriterImpl implements FixWriter {
     public static final int OFFSET = 32;
     private final byte[] version;
     private final byte[] buffer = new byte[1024 * 10];
@@ -24,14 +24,16 @@ public class FixWriterImpl implements FixWriterBuilder.FixWriter {
     }
 
     public interface Publish {
-        void publish(byte[] data, int start, int end);
+        void publish(byte[] data, int offset, int length);
     }
 
     @Override
-    public void write(Glob header, Glob message) {
+    public void write(Glob header, Glob message, Glob trailer) {
         int at = OFFSET;
         at = write(header, at);
-        int endAt = write(message, at);
+        at = write(message, at);
+        int endAt = write(trailer, at);
+
         final byte[] msgType = typeToMessageType.get(message.getType());
         int len = endAt - OFFSET + 4 + msgType.length; // add
 
@@ -73,15 +75,18 @@ public class FixWriterImpl implements FixWriterBuilder.FixWriter {
         buffer[at++] = size[size.length - 3];
         buffer[at++] = size[size.length - 2];
         buffer[at++] = size[size.length - 1];
-        publish.publish(buffer, startAt, at);
+        publish.publish(buffer, startAt, at - startAt);
     }
 
     private int write(Glob data, int at) {
-        final GlobType type = data.getType();
-        final FieldWrite fieldWrite = writeMap.get(type);
-        if (fieldWrite == null) {
-            throw new RuntimeException("Not writers found for type: " + type.getName());
+        if (data != null) {
+            final GlobType type = data.getType();
+            final FieldWrite fieldWrite = writeMap.get(type);
+            if (fieldWrite == null) {
+                throw new RuntimeException("Not writers found for type: " + type.getName());
+            }
+            return fieldWrite.writeAt(buffer, at, data);
         }
-        return fieldWrite.writeAt(buffer, at, data);
+        return at;
     }
 }

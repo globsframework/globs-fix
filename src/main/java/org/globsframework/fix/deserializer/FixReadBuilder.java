@@ -17,15 +17,17 @@ import java.util.*;
 public class FixReadBuilder {
     private final Map<String, FixStruct> messageFixStruct;
     private final FixStruct fixHeader;
+    private final FixStruct fixTrailer;
     private final FixModel fixModel;
 
-    private FixReadBuilder(Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixModel fixModel) {
+    private FixReadBuilder(Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel) {
         this.messageFixStruct = messageFixStruct;
         this.fixHeader = fixHeader;
+        this.fixTrailer = fixTrailer;
         this.fixModel = fixModel;
     }
 
-    public static FixReadBuilder create(FixModel fixModel, GlobModel globModel, GlobType headerType) {
+    public static FixReadBuilder create(FixModel fixModel, GlobModel globModel, GlobType headerType, GlobType trailerType) {
         Map<String, GlobType> messageTypeMap = new HashMap<>();
         final Collection<GlobType> all = globModel.getAll();
         for (GlobType globType : all) {
@@ -44,8 +46,10 @@ public class FixReadBuilder {
         }
 
         final FixHeader header = fixModel.getHeader();
+        final FixTrailer trailer = fixModel.getTrailer();
         final FixStruct fixHeader = computeFixStruct(namedFixStruct, headerType, header);
-        return new FixReadBuilder(messageFixStruct, fixHeader, fixModel);
+        final FixStruct fixTrailer = computeFixStruct(namedFixStruct, trailerType, trailer);
+        return new FixReadBuilder(messageFixStruct, fixHeader, fixTrailer, fixModel);
     }
 
     private static FixStruct computeFixStruct(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message) {
@@ -161,11 +165,11 @@ public class FixReadBuilder {
     }
 
     public FixReader createReader(ByteReader reader) {
-        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixModel, (byte) 0x1);
+        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, (byte) 0x1);
     }
 
     public FixReader createReader(ByteReader reader, byte sep) {
-        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixModel, sep);
+        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, sep);
     }
 
     private static class StringFieldDirectFieldReader implements DirectFieldReader {

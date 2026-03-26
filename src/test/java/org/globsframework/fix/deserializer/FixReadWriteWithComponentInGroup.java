@@ -17,6 +17,7 @@ import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
+import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.FixWriterImpl;
 import org.globsframework.json.GSonUtils;
@@ -42,13 +43,14 @@ public class FixReadWriteWithComponentInGroup {
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
         final GlobModel globModel = new DefaultGlobModel(PartialNews.TYPE);
-        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel, FixReadBuilderTest.HeaderType.TYPE);
+        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel,
+                FixReadBuilderTest.HeaderType.TYPE, FixReadBuilderTest.TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
-        final FixWriterBuilder.FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
+        final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
             @Override
-            public void publish(byte[] data, int start, int end) {
-                datas.add(Arrays.copyOfRange(data, start, end));
+            public void publish(byte[] data, int offset, int length) {
+                datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
         });
 
@@ -59,11 +61,12 @@ public class FixReadWriteWithComponentInGroup {
                         PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s3"),
                                 PartialNews.SecurityAltType.create("s4"))));
 
-        writer.write(FixReadBuilderTest.HeaderType.create("AA", "BB"), news);
+        writer.write(FixReadBuilderTest.HeaderType.create("AA", "BB"), news, null);
 
         assertEquals(1, datas.size());
 
-        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, FixReadBuilderTest.HeaderType.TYPE);
+        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel,
+                FixReadBuilderTest.HeaderType.TYPE, null);
         final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
         final FixMessageValue read = reader.read();
         assertNotNull(read);

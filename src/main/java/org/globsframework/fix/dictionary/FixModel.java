@@ -6,6 +6,8 @@ public interface FixModel {
 
     String getVersion();
 
+    FixTrailer getTrailer();
+
     FixHeader getHeader();
 
     FixMessage getMessage(String messageName);
