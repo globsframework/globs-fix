@@ -3,8 +3,11 @@ package org.globsframework.fix.serializer;
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.*;
+import org.globsframework.fix.dictionary.admin.FixAdminModel;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
@@ -29,17 +32,24 @@ public class FixWriterBuilder {
         this.fixModel = fixModel;
     }
 
-    public static FixWriterBuilder create(FixModel fixModel, GlobModel globModel,
+    public static FixWriterBuilder create(FixModel fixModel, GlobModel appGlobModel,
                                           GlobType headerType, GlobType trailerType) {
 
         Map<GlobType, List<FieldWrite>> writerPerType = new HashMap<>();
+
+        DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
+        FixAdminModel.MODEL.getAll().forEach(globModel::add);
 
         Map<String, GlobType> messageTypeMap = new HashMap<>();
         final Collection<GlobType> all = globModel.getAll();
         for (GlobType globType : all) {
             final Glob messageType = globType.findAnnotation(FixMessageType.UNIQUE_KEY);
             if (messageType != null) {
-                messageTypeMap.put(messageType.get(FixMessageType.name), globType);
+                GlobType tmp;
+                if ((tmp = messageTypeMap.put(messageType.get(FixMessageType.name), globType)) != null) {
+                    log.error("Duplicate message type name: " + messageType.get(FixMessageType.name) + " for "
+                    + globType.getName() + " vs " + tmp.getName());
+                }
             }
         }
 
@@ -50,7 +60,7 @@ public class FixWriterBuilder {
             final List<FixElement> elements = message.getElements();
             final GlobType messageType = messageTypeMap.get(message.getName());
             if (messageType == null) {
-                log.info("Glob type type not found for message: " + message.getName());
+                log.debug("Glob type type not found for message: " + message.getName());
             } else {
                 final List<FieldWrite> orCreate = getOrCreate(writerPerType, elements, messageType);
                 writerPerMessageType.put(messageType, new MessageFieldWrite(orCreate));
@@ -129,11 +139,15 @@ public class FixWriterBuilder {
                                     fixField.getId(),
                                     messageType.getGetAccessor(integerField)
                             ));
+                            case BooleanField booleanField -> fieldWrites.add(new BooleanFieldWrite(
+                                    fixField.getId(),
+                                    messageType.getGetAccessor(booleanField)
+                            ));
                             default ->
                                     throw new RuntimeException("Type " + field.getDataType() + " not managed on " + field.getFullName());
                         }
                     } else {
-                        log.info("No field for " + fixField.getName() + " (" + fixField.getId() + ")");
+                        log.debug("No field for " + fixField.getName() + " (" + fixField.getId() + ")");
                     }
                 }
                 case FixComponent fixComponent -> {
@@ -147,7 +161,7 @@ public class FixWriterBuilder {
                                                        "  but should be a Glob field " + field.getFullName());
                         }
                     } else {
-                        log.info("No glob field for " + fixComponent.getName());
+                        log.debug("No glob field for " + fixComponent.getName());
                     }
                 }
                 case FixGroup fixGroup -> {
@@ -163,7 +177,7 @@ public class FixWriterBuilder {
                                                        "  but should be a Glob Array Field " + field.getFullName());
                         }
                     } else {
-                        log.info("No glob array field for " + firstFieldName);
+                        log.debug("No glob array field for " + firstFieldName);
                     }
 
                 }
@@ -212,12 +226,9 @@ public class FixWriterBuilder {
         public int writeAt(byte[] buffer, int at, Glob data) {
             final Glob[] globs = data.getOrEmpty(globArrayField);
             if (globs != null) {
-                System.arraycopy(idBytes, 0, buffer, at, idBytes.length);
-                at += idBytes.length;
+                at = Utils.fastCopy(buffer, at, idBytes);
                 buffer[at++] = '=';
-                byte[] size = Integer.toString(globs.length).getBytes(StandardCharsets.US_ASCII);
-                System.arraycopy(size, 0, buffer, at, size.length);
-                at += size.length;
+                at = Utils.fastCopy(buffer, at, globs.length);
                 buffer[at++] = 0x1;
                 for (Glob glob : globs) {
                     for (FieldWrite write : writes) {

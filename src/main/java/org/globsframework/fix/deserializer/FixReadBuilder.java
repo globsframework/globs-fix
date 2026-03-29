@@ -3,10 +3,12 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.collections.IntHashMap;
 import org.globsframework.fix.dictionary.*;
+import org.globsframework.fix.dictionary.admin.FixAdminModel;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
@@ -27,7 +29,11 @@ public class FixReadBuilder {
         this.fixModel = fixModel;
     }
 
-    public static FixReadBuilder create(FixModel fixModel, GlobModel globModel, GlobType headerType, GlobType trailerType) {
+    public static FixReadBuilder create(FixModel fixModel, GlobModel appGlobModel, GlobType headerType, GlobType trailerType) {
+
+        DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
+        FixAdminModel.MODEL.getAll().forEach(globModel::add);
+
         Map<String, GlobType> messageTypeMap = new HashMap<>();
         final Collection<GlobType> all = globModel.getAll();
         for (GlobType globType : all) {
@@ -107,6 +113,8 @@ public class FixReadBuilder {
                                             fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField));
                                     case IntegerField integerField ->
                                             fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
+                                    case BooleanField booleanField ->
+                                            fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField));
                                     default ->
                                             throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
                                 }
@@ -216,6 +224,24 @@ public class FixReadBuilder {
         @Override
         public void read(int from, int to, byte[] buffer, MutableGlob data) {
             data.set(integerField, FixReaderImpl.getIntAt(from, to, buffer));
+        }
+    }
+
+    private static class BooleanFieldDirectFieldReader implements DirectFieldReader {
+        private final BooleanField booleanField;
+
+        public BooleanFieldDirectFieldReader(BooleanField booleanField) {
+            this.booleanField = booleanField;
+        }
+
+        @Override
+        public boolean isSet(MutableGlob data) {
+            return data.isSet(booleanField);
+        }
+
+        @Override
+        public void read(int from, int to, byte[] buffer, MutableGlob data) {
+            data.set(booleanField, buffer[from] == (byte)'Y');
         }
     }
 

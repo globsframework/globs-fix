@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.CompletableFuture;
 
 public class Server {
     private static final Logger log = LoggerFactory.getLogger(Server.class);
@@ -14,7 +15,8 @@ public class Server {
     private int port;
     private final OnNewConnection onNewConnection;
     private final ServerSocket serverSocket;
-    private volatile boolean running;
+    private CompletableFuture<Boolean> running = new CompletableFuture<>();
+    private boolean stopRequested = false;
 
     public Server(String listenInterface, int port, OnNewConnection onNewConnection) throws IOException {
         this.listenInterface = listenInterface;
@@ -23,8 +25,9 @@ public class Server {
         serverSocket = new ServerSocket();
     }
 
-    public interface OnNewConnection {
-        void newConnection(Socket socket);
+    public int getPort() {
+        running.join();
+        return port;
     }
 
     public void init() {
@@ -34,16 +37,21 @@ public class Server {
             if (port == 0) {
                 port = serverSocket.getLocalPort();
             }
-            running = true;
+            running.complete(true);
         } catch (IOException e) {
             final String msg = "Failed to initialize server";
             throw new RuntimeException(msg, e);
         }
     }
 
-    private void processConnections() {
+    public void stop() {
+        stopRequested = true;
+    }
+
+    public void processConnections() {
         try {
-            while (running) {
+            init();
+            while (!stopRequested) {
                 final Socket socket = serverSocket.accept();
                 socket.setTcpNoDelay(true);
                 final int localPort = socket.getLocalPort();

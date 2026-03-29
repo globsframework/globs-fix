@@ -1,8 +1,8 @@
 package org.globsframework.fix.serializer;
 
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.get.GlobGetStringAccessor;
+import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
@@ -19,15 +19,12 @@ class StringFieldWrite implements FieldWrite {
     public int writeAt(byte[] buffer, int at, Glob data) {
         final String s = accessor.get(data);
         if (s != null) {
-            for (byte b : id) {
-                buffer[at++] = b;
-            }
+            at = Utils.fastCopy(buffer, at, id);
             buffer[at++] = '=';
-            final byte[] bytes = s.getBytes(StandardCharsets.US_ASCII);
-            System.arraycopy(bytes, 0, buffer, at, bytes.length);
-            at += bytes.length;
+            at = Utils.fastCopy(buffer, at, s);
             buffer[at++] = 0x1;
         }
         return at;
     }
+
 }

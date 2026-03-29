@@ -7,12 +7,14 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.GlobField;
-import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.fix.HeaderType;
+import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.dictionary.FixModel;
+import org.globsframework.fix.dictionary.admin.HeartbeatType;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
@@ -31,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -55,23 +58,43 @@ class FixReadBuilderTest {
             }
         });
 
-        writer.write(HeaderType.create("AA", "BB"), HeartbeatType.create("req"),
+        writer.write(HeaderType.create("AA", "BB"), HeartbeatType.create("req1"),
+                TrailerType.create("sign"));
+        writer.write(HeaderType.create("CC", "DD"), HeartbeatType.create("req2"),
                 TrailerType.create("sign"));
 
-        assertEquals(1, datas.size());
+        assertEquals(2, datas.size());
 
         final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
-        final FixMessageValue read = reader.read();
-        assertNotNull(read);
-        assertEquals("AA", read.header().get(HeaderType.SenderCompID));
-        assertEquals("BB", read.header().get(HeaderType.TargetCompID));
-        assertEquals("req", read.message().get(HeartbeatType.TestReqID));
-        assertEquals("0", read.header().get(HeaderType.MsgType));
+        byte[] merged = new byte[datas.get(0).length + datas.get(1).length];
+        System.arraycopy(datas.get(0), 0, merged, 0, datas.get(0).length);
+        System.arraycopy(datas.get(1), 0, merged, datas.get(0).length, datas.get(1).length);
+        final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(merged);
+        final FixReader reader = fixReadBuilder.createReader(byteArrayInputStream::read, (byte) 0x1);
+        {
+            final FixMessageValue read = reader.read();
+            assertNotNull(read);
+            assertEquals("AA", read.header().get(HeaderType.SenderCompID));
+            assertEquals("BB", read.header().get(HeaderType.TargetCompID));
+            assertEquals("req1", read.message().get(HeartbeatType.testReqID));
+            assertEquals("0", read.header().get(HeaderType.MsgType));
 
-        assertNotNull(read.trailer());
-        assertEquals("sign", read.trailer().get(TrailerType.Signature));
-        assertEquals(172, read.trailer().get(TrailerType.CheckSum));
+            assertNotNull(read.trailer());
+            assertEquals("sign", read.trailer().get(TrailerType.Signature));
+            assertEquals(222, read.trailer().get(TrailerType.CheckSum));
+        }
+        {
+            final FixMessageValue read = reader.read();
+            assertNotNull(read);
+            assertEquals("CC", read.header().get(HeaderType.SenderCompID));
+            assertEquals("DD", read.header().get(HeaderType.TargetCompID));
+            assertEquals("req2", read.message().get(HeartbeatType.testReqID));
+            assertEquals("0", read.header().get(HeaderType.MsgType));
+
+            assertNotNull(read.trailer());
+            assertEquals("sign", read.trailer().get(TrailerType.Signature));
+            assertEquals(231, read.trailer().get(TrailerType.CheckSum));
+        }
     }
 
     @Test
@@ -161,71 +184,6 @@ class FixReadBuilderTest {
     }
 
 
-    public static class HeaderType {
-        public static final GlobType TYPE;
-
-        public static final StringField SenderCompID;
-
-        public static final StringField TargetCompID;
-
-        public static final StringField MsgType;
-
-        public static Glob create(String aa, String bb) {
-            return TYPE.instantiate()
-                    .set(SenderCompID, aa)
-                    .set(TargetCompID, bb)
-                    ;
-        }
-
-        static {
-            final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("HeaderType");
-            SenderCompID = typeBuilder.declareStringField("SenderCompID",
-                    FixFieldType.create("SenderCompID"));
-            TargetCompID = typeBuilder.declareStringField("TargetCompID", FixFieldType.create("TargetCompID"));
-            MsgType = typeBuilder.declareStringField("MsgType", FixFieldType.create("MsgType"));
-            TYPE = typeBuilder.build();
-        }
-    }
-
-    public static class TrailerType {
-        public static final GlobType TYPE;
-
-        public static final StringField Signature;
-
-        public static final IntegerField CheckSum;
-
-        public static Glob create(String signature) {
-            return TYPE.instantiate()
-                    .set(Signature, signature);
-        }
-
-        static {
-            final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("TrailerType");
-            Signature = typeBuilder.declareStringField("Signature",
-                    FixFieldType.create("Signature"));
-            CheckSum = typeBuilder.declareIntegerField("CheckSum", FixFieldType.create("CheckSum"));
-            TYPE = typeBuilder.build();
-        }
-    }
-
-    public static class HeartbeatType {
-        public static final GlobType TYPE;
-
-        public static final StringField TestReqID;
-
-        static {
-            final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("HeartbeatType");
-            typeBuilder.addAnnotation(FixMessageType.create("Heartbeat"));
-            TestReqID = typeBuilder.declareStringField("TestReqID", FixFieldType.create("TestReqID"));
-            TYPE = typeBuilder.build();
-        }
-
-        public static Glob create(String req) {
-            return TYPE.instantiate()
-                    .set(TestReqID, req);
-        }
-    }
-
     public static class LogonType {
         public static final GlobType TYPE;
 
@@ -233,7 +191,6 @@ class FixReadBuilderTest {
 
         @Target(GroupMsgTypes.class)
         public static final GlobArrayField groupMsgTypes;
-
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("LogonType");
@@ -289,7 +246,6 @@ class FixReadBuilderTest {
                     .set(IOITransType, type)
                     .set(Instrument, instr);
         }
-
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("IndicationOfInterest");

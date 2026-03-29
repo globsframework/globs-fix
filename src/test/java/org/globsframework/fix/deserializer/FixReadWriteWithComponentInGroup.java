@@ -10,6 +10,8 @@ import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.fix.HeaderType;
+import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
@@ -44,7 +46,7 @@ public class FixReadWriteWithComponentInGroup {
 
         final GlobModel globModel = new DefaultGlobModel(PartialNews.TYPE);
         final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel,
-                FixReadBuilderTest.HeaderType.TYPE, FixReadBuilderTest.TrailerType.TYPE);
+                HeaderType.TYPE, TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
@@ -61,12 +63,12 @@ public class FixReadWriteWithComponentInGroup {
                         PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s3"),
                                 PartialNews.SecurityAltType.create("s4"))));
 
-        writer.write(FixReadBuilderTest.HeaderType.create("AA", "BB"), news, null);
+        writer.write(HeaderType.create("AA", "BB"), news, null);
 
         assertEquals(1, datas.size());
 
         final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel,
-                FixReadBuilderTest.HeaderType.TYPE, null);
+                HeaderType.TYPE, null);
         final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
         final FixMessageValue read = reader.read();
         assertNotNull(read);

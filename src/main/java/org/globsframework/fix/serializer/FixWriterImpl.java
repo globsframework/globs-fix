@@ -2,6 +2,7 @@ package org.globsframework.fix.serializer;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
+import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
 
 import java.nio.charset.StandardCharsets;
@@ -28,7 +29,7 @@ public class FixWriterImpl implements FixWriter {
     }
 
     @Override
-    public void write(Glob header, Glob message, Glob trailer) {
+    synchronized public void write(Glob header, Glob message, Glob trailer) {
         int at = OFFSET;
         at = write(header, at);
         at = write(message, at);
@@ -37,9 +38,9 @@ public class FixWriterImpl implements FixWriter {
         final byte[] msgType = typeToMessageType.get(message.getType());
         int len = endAt - OFFSET + 4 + msgType.length; // add
 
-        final byte[] lenInBytes = Integer.toString(len).getBytes(StandardCharsets.US_ASCII);
+        final int lenInBytes = Utils.len(len);
 
-        int startAt = OFFSET - 2 - version.length - 3 - lenInBytes.length - 1 - 3 - msgType.length - 1;
+        int startAt = OFFSET - 2 - version.length - 3 - lenInBytes - 1 - 3 - msgType.length - 1;
         at = startAt;
         buffer[at++] = '8';
         buffer[at++] = '=';
@@ -48,15 +49,13 @@ public class FixWriterImpl implements FixWriter {
         buffer[at++] = 0x1;
         buffer[at++] = '9';
         buffer[at++] = '=';
-        System.arraycopy(lenInBytes, 0, buffer, at, lenInBytes.length);
-        at += lenInBytes.length;
+        at = Utils.fastCopy(buffer, at, len);
         buffer[at++] = 0x1;
 
         buffer[at++] = '3';
         buffer[at++] = '5';
         buffer[at++] = '=';
-        System.arraycopy(msgType, 0, buffer, at, msgType.length);
-        at += msgType.length;
+        at = Utils.fastCopy(buffer, at, msgType);
         buffer[at++] = 0x1;
 
         if (at != OFFSET) {
@@ -70,11 +69,21 @@ public class FixWriterImpl implements FixWriter {
         buffer[at++] = '1';
         buffer[at++] = '0';
         int s = Math.toIntExact(sum % 256);
-        final byte[] size = ("00" + s).getBytes(StandardCharsets.US_ASCII);
         buffer[at++] = '=';
-        buffer[at++] = size[size.length - 3];
-        buffer[at++] = size[size.length - 2];
-        buffer[at++] = size[size.length - 1];
+        if (s < 10) {
+            buffer[at++] = '0';
+            buffer[at++] = '0';
+            buffer[at++] = (byte) ('0' + s);
+        } else if (s < 100) {
+            buffer[at++] = '0';
+            buffer[at++] = (byte) ('0' + s / 10);
+            buffer[at++] = (byte) ('0' + s % 10);
+        }
+        else {
+            buffer[at++] = (byte) ('0' + s / 100);
+            buffer[at++] = (byte) ('0' + (s / 10) % 10);
+            buffer[at++] = (byte) ('0' + s % 10);
+        }
         publish.publish(buffer, startAt, at - startAt);
     }
 

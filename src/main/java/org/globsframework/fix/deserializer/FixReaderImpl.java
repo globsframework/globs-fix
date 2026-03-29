@@ -99,11 +99,12 @@ class FixReaderImpl implements FixReader {
         if (checkSum != check) {
             throw new RuntimeException("Invalid checksum " + checkSum + " != " + check);
         }
+        pos += 6;
     }
 
     public Glob readHeader() {
         msgCheck = 0;
-        messageLen = 1000; // first read break on separator and we don't known yet the message len
+        messageLen = 1000; // first read break on separator and we don't know yet the message len
         // read fix version
         if (!readNext()) {
             throw new RuntimeException("Missing FIX header");
