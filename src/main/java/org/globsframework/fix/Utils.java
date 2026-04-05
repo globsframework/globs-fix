@@ -1,8 +1,15 @@
 package org.globsframework.fix;
 
 import java.nio.charset.StandardCharsets;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class Utils {
+    public static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS");
+
+    public static String toDate(ZonedDateTime dateTime) {
+        return dateTime.format(FORMATTER);
+    }
 
     public static int copy(byte[] buffer, int at, int value) {
         return fastCopy(buffer, at, Integer.toString(value).getBytes(StandardCharsets.US_ASCII));
@@ -135,5 +142,13 @@ public class Utils {
 
     private static byte cast(char value) {
         return value < 0xff ? (byte) value : (byte)'?';
+    }
+
+    public static int getIntAt(int from, int to, byte[] buffer) {
+        int value = 0;
+        for (int i = from; i < to; i++) {
+            value = value * 10 + buffer[i] - '0';
+        }
+        return value;
     }
 }

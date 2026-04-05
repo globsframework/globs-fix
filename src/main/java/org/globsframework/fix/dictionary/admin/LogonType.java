@@ -32,6 +32,13 @@ public class LogonType {
                 .set(heartBtInt, heartbeatInS);
     }
 
+    public static Glob create(int encryp, Glob...msgTypes) {
+        return TYPE.instantiate()
+                .set(encryptMethod, encryp)
+                .set(LogonType.msgTypes, msgTypes);
+    }
+
+
     public static class NoMsgTypes {
         public static final GlobType TYPE;
 
@@ -44,6 +51,12 @@ public class LogonType {
             RefMsgType = builder.declareStringField("RefMsgType", FixFieldType.create("RefMsgType"));
             MsgDirection = builder.declareStringField("MsgDirection", FixFieldType.create("MsgDirection"));
             TYPE = builder.build();
+        }
+
+        public static Glob create(String msgType, String direction) {
+            return TYPE.instantiate()
+                    .set(RefMsgType, msgType)
+                    .set(MsgDirection, direction);
         }
     }
 

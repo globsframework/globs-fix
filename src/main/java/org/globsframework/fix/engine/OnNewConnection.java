@@ -1,7 +1,8 @@
 package org.globsframework.fix.engine;
 
 import java.net.Socket;
+import java.util.concurrent.CompletableFuture;
 
 public interface OnNewConnection {
-    void newConnection(Socket socket);
+    CompletableFuture<FixConnectionFactory.FixLogout> newConnection(Socket socket);
 }

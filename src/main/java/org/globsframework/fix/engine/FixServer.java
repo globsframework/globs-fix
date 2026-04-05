@@ -9,8 +9,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
 
-public class Server {
-    private static final Logger log = LoggerFactory.getLogger(Server.class);
+public class FixServer {
+    private static final Logger log = LoggerFactory.getLogger(FixServer.class);
     private final String listenInterface;
     private int port;
     private final OnNewConnection onNewConnection;
@@ -18,7 +18,7 @@ public class Server {
     private CompletableFuture<Boolean> running = new CompletableFuture<>();
     private boolean stopRequested = false;
 
-    public Server(String listenInterface, int port, OnNewConnection onNewConnection) throws IOException {
+    public FixServer(String listenInterface, int port, OnNewConnection onNewConnection) throws IOException {
         this.listenInterface = listenInterface;
         this.port = port;
         this.onNewConnection = onNewConnection;

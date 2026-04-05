@@ -6,6 +6,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 
 public class TrailerType {
@@ -15,12 +16,12 @@ public class TrailerType {
 
     public static final IntegerField CheckSum;
 
-    public static Glob create(String signature) {
+    public static MutableGlob create(String signature) {
         return TYPE.instantiate()
                 .set(Signature, signature);
     }
 
-    public static Glob create() {
+    public static MutableGlob create() {
         return TYPE.instantiate();
     }
 

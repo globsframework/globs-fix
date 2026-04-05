@@ -6,6 +6,7 @@ import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 
@@ -14,10 +15,9 @@ import java.util.Arrays;
 import java.util.Map;
 
 class FixReaderImpl implements FixReader {
-    public static final int lastId = 10;
     private final FixStruct header;
     private final FixStruct trailer;
-    private final Map<String, FixStruct> messages;
+    private final Map<String, FixStruct> messagesFixStruct;
     private final ByteReader reader;
     private final byte[] buffer = new byte[10024];
     private final FixModel fixModel;
@@ -41,7 +41,7 @@ class FixReaderImpl implements FixReader {
         this.reader = reader;
         this.trailer = fixTrailer;
         version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
-        this.messages = messageFixStruct;
+        this.messagesFixStruct = messageFixStruct;
         this.header = fixHeader;
         this.fixModel = fixModel;
         this.sep = sep;
@@ -60,7 +60,7 @@ class FixReaderImpl implements FixReader {
     @Override
     public FixMessageValue read() {
         Glob header = readHeader();
-        final FixStruct messageStruct = messages.get(msgType);
+        final FixStruct messageStruct = messagesFixStruct.get(msgType);
         if (messageStruct == null) {
             throw new RuntimeException("msgType " + msgType + " not expected.");
         }
@@ -91,11 +91,11 @@ class FixReaderImpl implements FixReader {
                 throw new RuntimeException("Unexpected end of stream");
             }
         }
-        int checkSumId = getIntAt(pos, pos + 2, buffer);
+        int checkSumId = Utils.getIntAt(pos, pos + 2, buffer);
         if (checkSumId != 10) {
             throw new RuntimeException("Invalid checksum id " + checkSumId + " != 10");
         }
-        int checkSum = getIntAt(pos + 3, pos + 6, buffer);
+        int checkSum = Utils.getIntAt(pos + 3, pos + 6, buffer);
         if (checkSum != check) {
             throw new RuntimeException("Invalid checksum " + checkSum + " != " + check);
         }
@@ -109,7 +109,7 @@ class FixReaderImpl implements FixReader {
         if (!readNext()) {
             throw new RuntimeException("Missing FIX header");
         }
-        int fixId = getIntAt(startAt, equalAt, buffer);
+        int fixId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(fixId, 8);
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
@@ -121,14 +121,14 @@ class FixReaderImpl implements FixReader {
         if (!readNext()) {
             throw new RuntimeException("Missing len");
         }
-        int msgLenId = getIntAt(startAt, equalAt, buffer);
+        int msgLenId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(msgLenId, 9);
-        messageLen = getIntAt(equalAt + 1, endAt, buffer);
+        messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer);
         msgReadLen = 0;
         if (!readNext()) {
             return null;
         }
-        int msgTypeId = getIntAt(startAt, equalAt, buffer);
+        int msgTypeId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(msgTypeId, 35);
         msgType = new String(buffer, equalAt + 1, endAt - equalAt - 1, StandardCharsets.US_ASCII);
 
@@ -175,7 +175,7 @@ class FixReaderImpl implements FixReader {
                     }
                 }
                 case GroupReader groupReader -> {
-                    final int groupCount = getIntAt(equalAt + 1, endAt, buffer);
+                    final int groupCount = Utils.getIntAt(equalAt + 1, endAt, buffer);
                     if (groupCount == 0) {
                         readNext();
                     } else {
@@ -211,7 +211,7 @@ class FixReaderImpl implements FixReader {
                     }
                 }
                 case GroupReader groupReader -> {
-                    final int groupCount = getIntAt(equalAt + 1, endAt, buffer);
+                    final int groupCount = Utils.getIntAt(equalAt + 1, endAt, buffer);
                     Glob[] group = new Glob[groupCount];
                     if (groupCount == 0) {
                         readNext();
@@ -230,15 +230,6 @@ class FixReaderImpl implements FixReader {
         return data;
     }
 
-    static int getIntAt(int from, int to, byte[] buffer) {
-        int value = 0;
-        for (int i = from; i < to; i++) {
-            value = value * lastId + buffer[i] - '0';
-        }
-        return value;
-    }
-
-
     public boolean readNext() {
         if (messageLen == msgReadLen) {
             currentReadId = -1;
@@ -256,8 +247,11 @@ class FixReaderImpl implements FixReader {
                         equalAt = pos;
                     }
                 } else if (buffer[pos] == sep) {
+                    if (!equalFound) {
+                        throw new RuntimeException("Unexpected separator before equal sign");
+                    }
                     endAt = pos;
-                    currentReadId = getIntAt(startAt, equalAt, buffer);
+                    currentReadId = Utils.getIntAt(startAt, equalAt, buffer);
                     pos++;
                     return true;
                 }
@@ -273,11 +267,27 @@ class FixReaderImpl implements FixReader {
                 startAt = 0;
                 length = 0;
             }
-            final int read = reader.read(buffer, length, buffer.length - pos);
-            if (read == -1) {
-                throw new RuntimeException("Unexpected end of stream");
+            if (pos != startAt) {
+                final int read = reader.read(buffer, length, buffer.length - pos);
+                if (read == -1) {
+                    throw new RuntimeException("Unexpected end of stream");
+                }
+                length += read;
             }
-            length += read;
+            else {
+                final int read = reader.read(buffer, 0, buffer.length);
+                if (read == -1) {
+                    throw new RuntimeException("client disconnected");
+                }
+                pos = 0;
+                length = read;
+                startAt = 0;
+            }
         }
+    }
+
+    public void initBuffer(byte[] initialBuffer, int len) {
+        System.arraycopy(initialBuffer, 0, buffer, 0, len);
+        length = len;
     }
 }

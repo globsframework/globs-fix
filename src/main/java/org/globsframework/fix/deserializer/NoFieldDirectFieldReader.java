@@ -1,0 +1,14 @@
+package org.globsframework.fix.deserializer;
+
+import org.globsframework.core.model.MutableGlob;
+
+class NoFieldDirectFieldReader implements DirectFieldReader {
+    @Override
+    public void read(int from, int to, byte[] buffer, MutableGlob data) {
+    }
+
+    @Override
+    public boolean isSet(MutableGlob data) {
+        return false;
+    }
+}

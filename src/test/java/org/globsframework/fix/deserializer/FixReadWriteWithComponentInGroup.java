@@ -20,8 +20,8 @@ import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.serializer.FixWriter;
-import org.globsframework.fix.serializer.FixWriterBuilder;
-import org.globsframework.fix.serializer.FixWriterImpl;
+import org.globsframework.fix.serializer.Publish;
+import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 import org.globsframework.json.GSonUtils;
 import org.junit.jupiter.api.Test;
 
@@ -45,16 +45,16 @@ public class FixReadWriteWithComponentInGroup {
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
         final GlobModel globModel = new DefaultGlobModel(PartialNews.TYPE);
-        final FixWriterBuilder fixWriterBuilder = FixWriterBuilder.create(fixModel, globModel,
+        final SerializerFixWriterBuilder fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel,
                 HeaderType.TYPE, TrailerType.TYPE);
 
         List<byte[]> datas = new ArrayList<>();
-        final FixWriter writer = fixWriterBuilder.createWriter(new FixWriterImpl.Publish() {
+        final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {
             @Override
             public void publish(byte[] data, int offset, int length) {
                 datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
-        });
+        }, new BasicMsgSeqProvider());
 
         Glob news = PartialNews.create(PartialNews.GrpInstrument.create(
                         PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s1"),
@@ -67,9 +67,9 @@ public class FixReadWriteWithComponentInGroup {
 
         assertEquals(1, datas.size());
 
-        final FixReadBuilder fixReadBuilder = FixReadBuilder.create(fixModel, globModel,
+        final FixReaderBuilder fixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel,
                 HeaderType.TYPE, null);
-        final FixReader reader = fixReadBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read, (byte) 0x1);
+        final FixReader reader = fixReaderBuilder.createReader(new ByteArrayInputStream(datas.get(0))::read);
         final FixMessageValue read = reader.read();
         assertNotNull(read);
         final Glob message = read.message();

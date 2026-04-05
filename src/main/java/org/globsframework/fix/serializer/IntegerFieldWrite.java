@@ -8,9 +8,9 @@ import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
-class IntegerFieldWrite implements FieldWrite {
-    GlobGetIntAccessor accessor;
-    byte[] id;
+final class IntegerFieldWrite implements FieldWrite {
+    private final GlobGetIntAccessor accessor;
+    private final byte[] id;
 
     public IntegerFieldWrite(int id, GlobGetIntAccessor getAccessor) {
         this.id = Integer.toString(id).getBytes(StandardCharsets.US_ASCII);

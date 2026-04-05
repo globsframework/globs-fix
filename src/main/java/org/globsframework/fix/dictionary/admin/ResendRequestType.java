@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
+import org.globsframework.core.model.Glob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -19,5 +20,11 @@ public class ResendRequestType {
         beginSeqNo = builder.declareIntegerField("beginSeqNo", FixFieldType.create("BeginSeqNo"));
         endSeqNo = builder.declareIntegerField("endSeqNo", FixFieldType.create("EndSeqNo"));
         TYPE = builder.build();
+    }
+
+    public static Glob create(int beginSeqNo, int endSeqNo) {
+        return TYPE.instantiate()
+                .set(ResendRequestType.beginSeqNo, beginSeqNo)
+                .set(ResendRequestType.endSeqNo, endSeqNo);
     }
 }

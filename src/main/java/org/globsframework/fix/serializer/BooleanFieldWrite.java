@@ -7,9 +7,9 @@ import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
-class BooleanFieldWrite implements FieldWrite {
-    GlobGetBooleanAccessor accessor;
-    byte[] id;
+final class BooleanFieldWrite implements FieldWrite {
+    private final GlobGetBooleanAccessor accessor;
+    private final byte[] id;
 
     public BooleanFieldWrite(int id, GlobGetBooleanAccessor getAccessor) {
         this.id = Integer.toString(id).getBytes(StandardCharsets.US_ASCII);

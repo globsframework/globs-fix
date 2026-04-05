@@ -6,7 +6,7 @@ import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
-class StringFieldWrite implements FieldWrite {
+final class StringFieldWrite implements FieldWrite {
     private final GlobGetStringAccessor accessor;
     private final byte[] id;
 

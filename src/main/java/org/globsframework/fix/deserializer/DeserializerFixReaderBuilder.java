@@ -5,7 +5,6 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.collections.IntHashMap;
 import org.globsframework.fix.dictionary.*;
 import org.globsframework.fix.dictionary.admin.FixAdminModel;
@@ -16,20 +15,20 @@ import org.globsframework.fix.dictionary.model.FixMessageType;
 
 import java.util.*;
 
-public class FixReadBuilder {
+public class DeserializerFixReaderBuilder implements FixReaderBuilder {
     private final Map<String, FixStruct> messageFixStruct;
     private final FixStruct fixHeader;
     private final FixStruct fixTrailer;
     private final FixModel fixModel;
 
-    private FixReadBuilder(Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel) {
+    private DeserializerFixReaderBuilder(Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel) {
         this.messageFixStruct = messageFixStruct;
         this.fixHeader = fixHeader;
         this.fixTrailer = fixTrailer;
         this.fixModel = fixModel;
     }
 
-    public static FixReadBuilder create(FixModel fixModel, GlobModel appGlobModel, GlobType headerType, GlobType trailerType) {
+    public static DeserializerFixReaderBuilder create(FixModel fixModel, GlobModel appGlobModel, GlobType headerType, GlobType trailerType) {
 
         DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
         FixAdminModel.MODEL.getAll().forEach(globModel::add);
@@ -55,7 +54,7 @@ public class FixReadBuilder {
         final FixTrailer trailer = fixModel.getTrailer();
         final FixStruct fixHeader = computeFixStruct(namedFixStruct, headerType, header);
         final FixStruct fixTrailer = computeFixStruct(namedFixStruct, trailerType, trailer);
-        return new FixReadBuilder(messageFixStruct, fixHeader, fixTrailer, fixModel);
+        return new DeserializerFixReaderBuilder(messageFixStruct, fixHeader, fixTrailer, fixModel);
     }
 
     private static FixStruct computeFixStruct(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message) {
@@ -115,6 +114,8 @@ public class FixReadBuilder {
                                             fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
                                     case BooleanField booleanField ->
                                             fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField));
+                                    case DateTimeField dateTimeField ->
+                                            fieldReaders.put(fixField.getId(), new DateTimeFieldDirectFieldReader(dateTimeField));
                                     default ->
                                             throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
                                 }
@@ -172,170 +173,16 @@ public class FixReadBuilder {
         }
     }
 
+    @Override
     public FixReader createReader(ByteReader reader) {
         return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, (byte) 0x1);
     }
 
-    public FixReader createReader(ByteReader reader, byte sep) {
-        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, sep);
+    @Override
+    public FixReader createReader(ByteReader reader, byte[] initialBuffer, int len) {
+        final FixReaderImpl fixReader = new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, (byte) 0x1);
+        fixReader.initBuffer(initialBuffer, len);
+        return fixReader;
     }
 
-    private static class StringFieldDirectFieldReader implements DirectFieldReader {
-        private final StringField field;
-
-        public StringFieldDirectFieldReader(StringField field) {
-            this.field = field;
-        }
-
-        @Override
-        public void read(int from, int to, byte[] buffer, MutableGlob data) {
-            data.set(field, new String(buffer, from, to - from));
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return data.isSet(field);
-        }
-    }
-
-    private static class NoFieldDirectFieldReader implements DirectFieldReader {
-        @Override
-        public void read(int from, int to, byte[] buffer, MutableGlob data) {
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return false;
-        }
-    }
-
-    private static class IntFieldDirectFieldReader implements DirectFieldReader {
-        private final IntegerField integerField;
-
-        public IntFieldDirectFieldReader(IntegerField integerField) {
-            this.integerField = integerField;
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return data.isSet(integerField);
-        }
-
-        @Override
-        public void read(int from, int to, byte[] buffer, MutableGlob data) {
-            data.set(integerField, FixReaderImpl.getIntAt(from, to, buffer));
-        }
-    }
-
-    private static class BooleanFieldDirectFieldReader implements DirectFieldReader {
-        private final BooleanField booleanField;
-
-        public BooleanFieldDirectFieldReader(BooleanField booleanField) {
-            this.booleanField = booleanField;
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return data.isSet(booleanField);
-        }
-
-        @Override
-        public void read(int from, int to, byte[] buffer, MutableGlob data) {
-            data.set(booleanField, buffer[from] == (byte)'Y');
-        }
-    }
-
-    private static class ComponentReaderImpl implements ComponentReader {
-        private final FixStruct fixStruct;
-        private final GlobField globField;
-
-        public ComponentReaderImpl(FixStruct fixStruct, GlobField globField) {
-            this.fixStruct = fixStruct;
-            this.globField = globField;
-        }
-
-        @Override
-        public FixStruct getComponent() {
-            return fixStruct;
-        }
-
-        @Override
-        public void update(Glob glob, MutableGlob data) {
-            data.set(globField, glob);
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return data.isSet(globField);
-        }
-    }
-
-    private static class NoFieldComponentReaderImpl implements ComponentReader {
-        private final FixStruct fixStruct;
-
-        public NoFieldComponentReaderImpl(FixStruct fixStruct) {
-            this.fixStruct = fixStruct;
-        }
-
-        @Override
-        public FixStruct getComponent() {
-            return fixStruct;
-        }
-
-        @Override
-        public void update(Glob glob, MutableGlob data) {
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return false;
-        }
-    }
-
-    private static class FieldGroupReader implements GroupReader {
-        private final GlobArrayField globArrayField;
-        private final FixStruct fixStruct;
-
-        public FieldGroupReader(GlobArrayField globArrayField, FixStruct fixStruct) {
-            this.globArrayField = globArrayField;
-            this.fixStruct = fixStruct;
-        }
-
-        @Override
-        public FixStruct sub() {
-            return fixStruct;
-        }
-
-        @Override
-        public void update(Glob[] group, MutableGlob data) {
-            data.set(globArrayField, group);
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return data.isSet(globArrayField);
-        }
-    }
-
-    private static class NoFieldGroupReader implements GroupReader {
-        private final FixStruct fixStruct;
-
-        public NoFieldGroupReader(FixStruct fixStruct) {
-            this.fixStruct = fixStruct;
-        }
-
-        @Override
-        public FixStruct sub() {
-            return fixStruct;
-        }
-
-        @Override
-        public void update(Glob[] group, MutableGlob data) {
-        }
-
-        @Override
-        public boolean isSet(MutableGlob data) {
-            return false;
-        }
-    }
 }

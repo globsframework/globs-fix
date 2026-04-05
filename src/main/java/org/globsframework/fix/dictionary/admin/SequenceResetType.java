@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.BooleanField;
 import org.globsframework.core.metamodel.fields.IntegerField;
+import org.globsframework.core.model.Glob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -13,6 +14,12 @@ public class SequenceResetType {
 
     public static final BooleanField gapFillFlag;
     public static final IntegerField newSeqNo;
+
+    public static Glob create(boolean gapFillFlag, int newSeqNo) {
+        return TYPE.instantiate()
+                .set(SequenceResetType.gapFillFlag,gapFillFlag)
+                .set(SequenceResetType.newSeqNo, newSeqNo);
+    }
 
     static {
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("SequenceReset");
