@@ -49,11 +49,13 @@ class FixServerTest {
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
+        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder);
+
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
-                        new MyPerTargetBuilder(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc,
-                                () -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, serverMsgSeqProvider),
-                                new ServerUserLogonSessionFactory(scheduledExecutorService)));
+                        new MyPerTargetBuilder(serializerProvider, headerDesc,
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, serverMsgSeqProvider),
+                                new ServerUserLogonSessionFactory(headerDesc, scheduledExecutorService)));
         final FixServer fixServer = new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
 
         executorService.submit(fixServer::processConnections);
@@ -68,9 +70,8 @@ class FixServerTest {
         final FixClient fixClient = new FixClient("localhost", port,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                () -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
-                                DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
-                                SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
+                                serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),
                         new LoggerPublish()));
@@ -145,79 +146,24 @@ class FixServerTest {
         }
     }
 
-    private static class TestUserServerLogonSession implements FixSessionImpl.UserLogonSession {
-        private final FixWriter writer;
-        private final Shutdown shutdown;
-        private final Pricer pricer;
-        private final String senderCompID;
-        private final String targetCompoID;
-
-        public TestUserServerLogonSession(FixWriter writer, Shutdown shutdown, Pricer pricer, String senderCompID, String targetCompoID) {
-            this.writer = writer;
-            this.shutdown = shutdown;
-            this.pricer = pricer;
-
-            this.senderCompID = senderCompID;
-            this.targetCompoID = targetCompoID;
+    static private class InMemoryClientSeqMsgId implements FixSessionImpl.ClientSeqMsgId {
+        private final AtomicInteger currentSeqNum = new AtomicInteger(0);
+        @Override
+        public void next(int expectedNext) {
+            final int i = currentSeqNum.incrementAndGet();
+            if (i != expectedNext) {
+                throw new RuntimeException("invalide state " + i + " was expected but gor " + expectedNext);
+            }
         }
 
         @Override
-        public FixSessionImpl.UserSession initiator() {
-            throw new RuntimeException("Pricer side is acceptor");
+        public int current() {
+            return currentSeqNum.get();
         }
 
         @Override
-        public FixSessionImpl.UserSession acceptor(FixMessageValue loggon) {
-            // check logon
-            return new ServerPricerUserSession();
-        }
-
-        private class ServerPricerUserSession implements FixSessionImpl.UserSession {
-            @Override
-            public void messages(FixMessageValue fixMessageValue) {
-                final Glob message = fixMessageValue.message();
-                log.info("Got message " + GSonUtils.encode(message) + " " + GSonUtils.encode(fixMessageValue.header()));
-                if (message.getType() == QuoteRequestType.TYPE) {
-                    final String quoteReqId = message.get(QuoteRequestType.quoteReqID);
-                    pricer.subscribe(quoteReqId, value -> {
-                        writer.write(getHeader(),
-                                QuoteResponseType.TYPE.instantiate()
-                                        .set(QuoteResponseType.quoteRespID, quoteReqId)
-                                        .set(QuoteResponseType.bidPx, value),
-                                null);
-                    });
-                }
-            }
-
-            @Override
-            public CompletableFuture<Void> logout() {
-                return CompletableFuture.completedFuture(null);
-            }
-
-            @Override
-            public Glob getLoggon() {
-                return LogonType.create(1000);
-            }
-
-            @Override
-            public int getSeqMsg() {
-                return 1;
-            }
-
-            @Override
-            public MutableGlob getHeader() {
-                return HeaderType.create(senderCompID, targetCompoID);
-            }
-
-            @Override
-            public void resetNext() {
-
-            }
-
-            @Override
-            public void connected(FixMessageValue read) {
-
-            }
+        public void reset(int lastReceived) {
+            currentSeqNum.set(lastReceived);
         }
     }
 
@@ -225,124 +171,6 @@ class FixServerTest {
         void connected(String targetCompID, TestUserClientLogonSession.ClientUserSession clientUserSession);
     }
 
-
-    public static class TestUserClientLogonSession implements FixSessionImpl.UserLogonSession, Connected {
-        private final MsgSeqProvider clientMsgSeqProvider;
-        private final FixWriter writer;
-        private final Shutdown shutdown;
-        private final String senderCompID;
-        private final String targetCompoID;
-        private final Map<String, PriceListener> listeners = new HashMap<>();
-
-        public TestUserClientLogonSession(MsgSeqProvider clientMsgSeqProvider, FixWriter writer, Shutdown shutdown,
-                                          String senderCompID, String targetCompoID) {
-            this.clientMsgSeqProvider = clientMsgSeqProvider;
-            this.writer = writer;
-            this.shutdown = shutdown;
-            this.senderCompID = senderCompID;
-            this.targetCompoID = targetCompoID;
-        }
-
-        @Override
-        public FixSessionImpl.UserSession initiator() {
-            return new ClientUserSession(this);
-        }
-
-        @Override
-        public FixSessionImpl.UserSession acceptor(FixMessageValue loggon) {
-            throw new RuntimeException("Expected to be the initiator");
-        }
-
-        public void subscribe(String sym, PriceListener priceListener) {
-            listeners.put(sym, priceListener);
-        }
-
-        @Override
-        public void connected(String targetCompID, ClientUserSession clientUserSession) {
-            log.info("Connect " + targetCompID + " register " + listeners.size() + " listener");
-            for (Map.Entry<String, PriceListener> stringPriceListenerEntry : listeners.entrySet()) {
-                log.info("Register " + stringPriceListenerEntry.getKey());
-                clientUserSession.subscribe(stringPriceListenerEntry.getKey(), stringPriceListenerEntry.getValue());
-            }
-        }
-
-        interface PriceListener {
-            void priceChanged(String symbol, String bidPx);
-        }
-
-
-        private class ClientUserSession implements FixSessionImpl.UserSession {
-            private final Connected connected;
-
-            public ClientUserSession(Connected connected) {
-                this.connected = connected;
-            }
-
-            public void subscribe(String symbol, PriceListener priceListener) {
-                writer.write(getHeader().duplicate(), QuoteRequestType.TYPE.instantiate()
-                                .set(QuoteRequestType.quoteReqID, symbol)
-                        , null);
-            }
-
-            @Override
-            public void messages(FixMessageValue fixMessageValue) {
-                if (fixMessageValue.message() != null) {
-                    final Glob message = fixMessageValue.message();
-                    if (message.getType() == QuoteResponseType.TYPE) {
-                        final String quoteRespId = message.get(QuoteResponseType.quoteRespID);
-                        final String bidPx = message.get(QuoteResponseType.bidPx);
-                        final PriceListener priceListener = listeners.get(quoteRespId);
-                        if (priceListener != null) {
-                            priceListener.priceChanged(quoteRespId, bidPx);
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public CompletableFuture<Void> logout() {
-                return CompletableFuture.completedFuture(null);
-            }
-
-            @Override
-            public Glob getLoggon() {
-                return LogonType.create(1000);
-            }
-
-            @Override
-            public int getSeqMsg() {
-                return clientMsgSeqProvider.curent();
-            }
-
-            @Override
-            public Glob getHeader() {
-                return HeaderType.create(senderCompID, targetCompoID);
-            }
-
-            @Override
-            public void resetNext() {
-
-            }
-
-            @Override
-            public void connected(FixMessageValue read) {
-                connected.connected(targetCompoID, this);
-            }
-        }
-    }
-
-    public static class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
-        private final ScheduledExecutorService scheduledExecutorService;
-
-        public ServerUserLogonSessionFactory(ScheduledExecutorService scheduledExecutorService) {
-            this.scheduledExecutorService = scheduledExecutorService;
-        }
-
-        @Override
-        public FixSessionImpl.UserLogonSession create(FixWriter writer, Shutdown shutdown) {
-            return new TestUserServerLogonSession(writer, shutdown, new PricerImpl(scheduledExecutorService), "AF", "ZF");
-        }
-    }
 
     public static class ClientUserLogonSessionFactory implements UserLogonSessionFactory {
         private final MsgSeqProvider clientMsgSeqProvider;
@@ -359,11 +187,116 @@ class FixServerTest {
         }
 
         @Override
-        public FixSessionImpl.UserLogonSession create(FixWriter writer, Shutdown shutdown) {
+        public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
             TestUserClientLogonSession testUserClientLogonSession =
-                    new TestUserClientLogonSession(clientMsgSeqProvider, writer, shutdown, "ZF", "AF");
+                    new TestUserClientLogonSession(clientMsgSeqProvider, shutdown, "ZF", "AF", new InMemoryClientSeqMsgId());
             notifyNewClient.newClient(testUserClientLogonSession);
             return testUserClientLogonSession;
+        }
+    }
+
+    public static class TestUserClientLogonSession implements FixSessionImpl.UserLogonSession, Connected {
+        private final MsgSeqProvider clientMsgSeqProvider;
+        private final Shutdown shutdown;
+        private final String senderCompID;
+        private final String targetCompoID;
+        private final Map<String, PriceListener> listeners = new HashMap<>();
+        private FixSessionImpl.ClientSeqMsgId clientSeqMsg;
+
+        public TestUserClientLogonSession(MsgSeqProvider clientMsgSeqProvider, Shutdown shutdown,
+                                          String senderCompID, String targetCompoID, FixSessionImpl.ClientSeqMsgId clientSeqMsg1) {
+            this.clientMsgSeqProvider = clientMsgSeqProvider;
+            this.shutdown = shutdown;
+            this.senderCompID = senderCompID;
+            this.targetCompoID = targetCompoID;
+            clientSeqMsg = clientSeqMsg1;
+        }
+
+        @Override
+        public FixSessionImpl.UserSession initiator() {
+            return new ClientUserSession(this, clientSeqMsg);
+        }
+
+        @Override
+        public FixSessionImpl.UserSession acceptor(String senderCompID, String targetCompID) {
+            throw new RuntimeException("Expected to be the initiator");
+        }
+
+        public void subscribe(String sym, PriceListener priceListener) {
+            listeners.put(sym, priceListener);
+        }
+
+        @Override
+        public void connected(String targetCompID, ClientUserSession clientUserSession) {
+//            log.info("Connect " + targetCompID + " register " + listeners.size() + " listener");
+//            for (Map.Entry<String, PriceListener> stringPriceListenerEntry : listeners.entrySet()) {
+//                log.info("Register " + stringPriceListenerEntry.getKey());
+//                clientUserSession.subscribe(stringPriceListenerEntry.getKey(), stringPriceListenerEntry.getValue());
+//            }
+        }
+
+        interface PriceListener {
+            void priceChanged(String symbol, String bidPx);
+        }
+
+
+        private class ClientUserSession implements FixSessionImpl.UserSession {
+            private final Connected connected;
+            private final FixSessionImpl.ClientSeqMsgId clientSeqMsg;
+
+            public ClientUserSession(Connected connected, FixSessionImpl.ClientSeqMsgId clientSeqMsg) {
+                this.connected = connected;
+                this.clientSeqMsg = clientSeqMsg;
+            }
+
+
+            @Override
+            public CompletableFuture<Void> logout() {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public Glob getLogon() {
+                return LogonType.create(1000);
+            }
+
+            @Override
+            public FixSessionImpl.ClientSeqMsgId getSeqMsg() {
+                return clientSeqMsg;
+            }
+
+            @Override
+            public Glob getHeader() {
+                return HeaderType.create(senderCompID, targetCompoID);
+            }
+
+            @Override
+            public FixSessionImpl.AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
+                synchronized (this) {
+                    connected.connected(targetCompoID, this);
+                    for (String symbol : listeners.keySet()) {
+                        appWriter.write(getHeader().duplicate(), QuoteRequestType.TYPE.instantiate()
+                                        .set(QuoteRequestType.quoteReqID, symbol)
+                                , null);
+                    }
+                }
+                return new FixSessionImpl.AppMessageReceiver() {
+                    @Override
+                    public void messages(FixMessageValue fixMessageValue) {
+                        if (fixMessageValue.message() != null) {
+                            final Glob message = fixMessageValue.message();
+                            if (message.getType() == QuoteResponseType.TYPE) {
+                                final String quoteRespId = message.get(QuoteResponseType.quoteRespID);
+                                final String bidPx = message.get(QuoteResponseType.bidPx);
+                                final PriceListener priceListener = listeners.get(quoteRespId);
+                                if (priceListener != null) {
+                                    priceListener.priceChanged(quoteRespId, bidPx);
+                                }
+                            }
+                        }
+                    }
+                };
+            }
         }
     }
 
@@ -374,17 +307,107 @@ class FixServerTest {
         }
     }
 
+    //------------------------- Acceptor side
+
+    public static class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
+        private final HeaderDesc headerDesc;
+        private final ScheduledExecutorService scheduledExecutorService;
+
+        public ServerUserLogonSessionFactory(HeaderDesc headerDesc, ScheduledExecutorService scheduledExecutorService) {
+            this.headerDesc = headerDesc;
+            this.scheduledExecutorService = scheduledExecutorService;
+        }
+
+        @Override
+        public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
+            return new TestUserServerLogonSession(headerDesc, shutdown, new PricerImpl(scheduledExecutorService));
+        }
+    }
+
+    private static class TestUserServerLogonSession implements FixSessionImpl.UserLogonSession {
+        private final HeaderDesc headerDesc;
+        private final Shutdown shutdown;
+        private final Pricer pricer;
+        private final InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
+
+        public TestUserServerLogonSession(HeaderDesc headerDesc, Shutdown shutdown, Pricer pricer) {
+            this.headerDesc = headerDesc;
+            this.shutdown = shutdown;
+            this.pricer = pricer;
+
+        }
+
+        @Override
+        public FixSessionImpl.UserSession initiator() {
+            throw new RuntimeException("Pricer side is acceptor");
+        }
+
+        @Override
+        public FixSessionImpl.UserSession acceptor(String senderCompID, String targetCompID) {
+            return new ServerPricerUserSession(senderCompID, targetCompID);
+        }
+
+        private class ServerPricerUserSession implements FixSessionImpl.UserSession {
+
+            private final String senderCompID;
+            private final String targetCompID;
+
+            public ServerPricerUserSession(String senderCompID, String targetCompID) {
+                this.senderCompID = senderCompID;
+                this.targetCompID = targetCompID;
+            }
+
+            public FixSessionImpl.AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
+                return new FixSessionImpl.AppMessageReceiver() {
+                    @Override
+                    public void messages(FixMessageValue fixMessageValue) {
+                        final Glob message = fixMessageValue.message();
+                        log.info("Got message " + GSonUtils.encode(message) + " " + GSonUtils.encode(fixMessageValue.header()));
+                        if (message.getType() == QuoteRequestType.TYPE) {
+                            final String quoteReqId = message.get(QuoteRequestType.quoteReqID);
+                            pricer.subscribe(quoteReqId, value -> {
+                                appWriter.write(getHeader(),
+                                        QuoteResponseType.TYPE.instantiate()
+                                                .set(QuoteResponseType.quoteRespID, quoteReqId)
+                                                .set(QuoteResponseType.bidPx, value),
+                                        null);
+                            });
+                        }
+                    }
+                };
+            }
+
+            @Override
+            public CompletableFuture<Void> logout() {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public Glob getLogon() {
+                return LogonType.create(1000);
+            }
+
+            @Override
+            public FixSessionImpl.ClientSeqMsgId getSeqMsg() {
+                return inMemoryClientSeqMsgId;
+            }
+
+            @Override
+            public MutableGlob getHeader() {
+                return HeaderType.create(senderCompID, targetCompID);
+            }
+        }
+    }
+
     public static class MyPerTargetBuilder implements NewAcceptorFixConnectionImpl.PerTargetBuilder {
-        private final DeserializerFixReaderBuilder deserializerFixReaderBuilder;
-        private final SerializerFixWriterBuilder serializerFixWriterBuilder;
+        private final SerializerProvider serializerProvider;
         private final HeaderDesc headerDesc;
         private final CacheProvider cacheProvider;
         private final ServerUserLogonSessionFactory serverUserLogonSessionFactory;
 
-        public MyPerTargetBuilder(DeserializerFixReaderBuilder deserializerFixReaderBuilder,
-                                  SerializerFixWriterBuilder serializerFixWriterBuilder, HeaderDesc headerDesc, CacheProvider cacheProvider, ServerUserLogonSessionFactory serverUserLogonSessionFactory) {
-            this.deserializerFixReaderBuilder = deserializerFixReaderBuilder;
-            this.serializerFixWriterBuilder = serializerFixWriterBuilder;
+        public MyPerTargetBuilder(SerializerProvider serializerProvider, HeaderDesc headerDesc, CacheProvider cacheProvider,
+                                  ServerUserLogonSessionFactory serverUserLogonSessionFactory) {
+            this.serializerProvider = serializerProvider;
             this.headerDesc = headerDesc;
             this.cacheProvider = cacheProvider;
             this.serverUserLogonSessionFactory = serverUserLogonSessionFactory;
@@ -393,10 +416,11 @@ class FixServerTest {
         @Override
         public NewAcceptorFixConnectionImpl.PerTarget create(String senderCompID, String targetCompID, Publish publish,
                                                              ByteReader byteReader, byte[] initialBuffer, int len) {
-            final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData();
-            final FixReader reader = deserializerFixReaderBuilder.createReader(byteReader, initialBuffer, len);
+            final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
+            final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader, initialBuffer, len);
             return new NewAcceptorFixConnectionImpl.PerTarget(cachedData.cachedData(), reader,
-                    serializerFixWriterBuilder.createWriter(publish, cachedData.msgSeqProvider()), headerDesc, serverUserLogonSessionFactory);
+                    serializerProvider.getWriter(senderCompID, targetCompID).createWriter(publish, cachedData.msgSeqProvider()), headerDesc, serverUserLogonSessionFactory);
         }
     }
+
 }

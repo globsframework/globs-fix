@@ -55,7 +55,7 @@ class FixReaderBuilderTest {
             public void publish(byte[] data, int offset, int length) {
                 datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
-        }, new SimpleMsgSeqProvider());
+        }, new BasicMsgSeqProvider());
 
         final ZonedDateTime headerTime = ZonedDateTime.parse("2026-04-01T20:33:30.123+02:00[Europe/Paris]");
         writer.write(HeaderType.create("AA", "BB").set(HeaderType.sendingTime, headerTime), HeartbeatType.create("req1"),
@@ -113,7 +113,7 @@ class FixReaderBuilderTest {
             public void publish(byte[] data, int offset, int length) {
                 datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
-        }, new SimpleMsgSeqProvider());
+        }, new BasicMsgSeqProvider());
 
         Glob login = LogonType.create(1, LogonType.NoMsgTypes.create("1", "1"),
                 LogonType.NoMsgTypes.create("2", "1"));
@@ -155,7 +155,7 @@ class FixReaderBuilderTest {
             public void publish(byte[] data, int offset, int length) {
                 datas.add(Arrays.copyOfRange(data, offset, offset + length));
             }
-        }, new SimpleMsgSeqProvider());
+        }, new BasicMsgSeqProvider());
 
         Glob msg = IndicationOfInterestType.create("id1", "type1",
                 IndicationOfInterestType.InstrumentType.create("EUR/USD",
@@ -253,23 +253,6 @@ class FixReaderBuilderTest {
                         FixFieldType.create("SecurityAltID"));
                 TYPE = typeBuilder.build();
             }
-        }
-    }
-
-    private static class SimpleMsgSeqProvider implements MsgSeqProvider {
-        int msgSeq = 0;
-        @Override
-        public int next() {
-            return ++msgSeq;
-        }
-
-        @Override
-        public int curent() {
-            return msgSeq;
-        }
-
-        public void reset() {
-            msgSeq = 1;
         }
     }
 }

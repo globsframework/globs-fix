@@ -5,7 +5,7 @@ public interface MsgSeqProvider {
 
     int curent();
 
-//    int current();
+    //    int current();
 
 //    void reset();
 }

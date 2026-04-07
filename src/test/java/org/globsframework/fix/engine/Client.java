@@ -34,15 +34,18 @@ public class Client {
 
         final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
 
+        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(
+                DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
+                SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE)
+        );
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                () -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
-                                DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
-                                SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
+                                serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),
                         new FixServerTest.LoggerPublish()));
@@ -55,10 +58,11 @@ public class Client {
 
             List<String> prices = new ArrayList<>();
             CompletableFuture<List<String>> priceFuture;
+
             @Override
             public void priceChanged(String str, String p) {
                 log.info("EUR price changed: " + str + " " + p);
-                    prices.add(p);
+                prices.add(p);
                 if (prices.size() == 10) {
                     prices = new ArrayList<>();
                     if (priceFuture != null) {

@@ -1,5 +1,6 @@
 package org.globsframework.fix.engine;
 
+import org.globsframework.core.model.Glob;
 import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.FixReader;
 import org.globsframework.fix.deserializer.FixReaderBuilder;
@@ -16,34 +17,37 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
     private final ScheduledExecutorService scheduledExecutorService;
     private final UserLogonSessionFactory userLogonSessionFactory;
     private final CacheProvider cacheProvider;
-    private final FixReaderBuilder fixReader;
-    private final FixWriterBuilder fixWriter;
+    private final SerializerProvider serializerProvider;
     private final HeaderDesc headerDesc;
 
     public NewInitiatorFixConnectionImpl(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
                                          UserLogonSessionFactory userLogonSessionFactory,
                                          CacheProvider cacheProvider,
-                                         FixReaderBuilder fixReader,
-                                         FixWriterBuilder fixWriter,
+                                         SerializerProvider serializerProvider,
                                          HeaderDesc headerDesc) {
         this.executorService = executorService;
         this.scheduledExecutorService = scheduledExecutorService;
         this.userLogonSessionFactory = userLogonSessionFactory;
         this.cacheProvider = cacheProvider;
-        this.fixReader = fixReader;
-        this.fixWriter = fixWriter;
+        this.serializerProvider = serializerProvider;
         this.headerDesc = headerDesc;
     }
 
     @Override
     public CompletableFuture<FixConnectionFactory.FixLogout> onNew(ByteReader byteReader, Publish publish, Shutdown shutdown) {
-        final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData();
-        final FixWriter writer = fixWriter.createWriter(publish, cachedData.msgSeqProvider());
-        final FixReader reader = fixReader.createReader(byteReader);
 
         final CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture = new CompletableFuture<>();
+        final FixSessionImpl.UserLogonSession userLogonSession = userLogonSessionFactory.create(shutdown);
+        FixSessionImpl.UserSession userSession = userLogonSession.initiator();
+        final Glob header = userSession.getHeader();
+        String senderCompID = header.get(headerDesc.senderCompIDField());
+        String targetCompID = header.get(headerDesc.targetCompIDField());
+        final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
+        final FixWriter writer = serializerProvider.getWriter(senderCompID, targetCompID).createWriter(publish, cachedData.msgSeqProvider());
+        final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader);
+
         final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
-                userLogonSessionFactory.create(writer, shutdown),
+                userSession,
                 cachedData.cachedData(), headerDesc, shutdown, true);
         executorService.execute(fixSession);
         logoutCompletableFuture.complete(fixSession::logout);

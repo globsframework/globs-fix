@@ -82,8 +82,9 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
             }
 
             final PerTarget perTarget = perTargetBuilder.create(senderComp, targetComp, publish, byteReader, buffer, len);
+            final FixSessionImpl.UserLogonSession userLogonSession = perTarget.userLogonSessionFactory().create(shutdown);
             final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, perTarget.fixReader(), perTarget.fixWriter(),
-                    perTarget.userLogonSessionFactory().create(perTarget.fixWriter(), shutdown),
+                    userLogonSession.acceptor(senderComp, targetComp),
                     perTarget.cachedData(), perTarget.headerDesc(), shutdown, false);
             logoutCompletableFuture.complete(fixSession::logout);
             executorService.execute(fixSession);
