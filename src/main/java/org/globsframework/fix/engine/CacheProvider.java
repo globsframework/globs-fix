@@ -5,6 +5,6 @@ import org.globsframework.fix.serializer.MsgSeqProvider;
 public interface CacheProvider {
     SeqNumAndCache getCachedData(String senderCompID, String targetCompID);
 
-    record SeqNumAndCache(CachedData cachedData, MsgSeqProvider msgSeqProvider) {
+    record SeqNumAndCache(CachedData cachedData, MsgSeqProvider msgSeqProvider, FixSessionImpl.ClientSeqMsgId clientSeqMsgId) {
     }
 }

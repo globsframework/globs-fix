@@ -8,6 +8,6 @@ public record FixMessageValue(Glob header, Glob message, Glob trailer) {
     @Override
     public String toString() {
         return String.format("Header: %s, Message: %s, Trailer: %s", GSonUtils.encode(header),
-                GSonUtils.encode(message), trailer == null ? "empty'" : GSonUtils.encode(trailer));
+                GSonUtils.encode(message, true), trailer == null ? "empty'" : GSonUtils.encode(trailer));
     }
 }

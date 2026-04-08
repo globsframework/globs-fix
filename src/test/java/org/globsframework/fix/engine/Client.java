@@ -27,7 +27,8 @@ public class Client {
     public static void main(String[] args) throws Exception {
         CompletableFuture<FixServerTest.TestUserClientLogonSession> completableFuture = new CompletableFuture<>();
         final BasicMsgSeqProvider clientMsgSeqProvider = new BasicMsgSeqProvider();
-        final FixServerTest.ClientUserLogonSessionFactory userLogonSessionFactory = new FixServerTest.ClientUserLogonSessionFactory(clientMsgSeqProvider, completableFuture::complete);
+        final FixServerTest.InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new FixServerTest.InMemoryClientSeqMsgId();
+        final FixServerTest.ClientUserLogonSessionFactory userLogonSessionFactory = new FixServerTest.ClientUserLogonSessionFactory(completableFuture::complete);
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(FixServer.class.getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
@@ -44,7 +45,7 @@ public class Client {
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider, inMemoryClientSeqMsgId),
                                 serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),

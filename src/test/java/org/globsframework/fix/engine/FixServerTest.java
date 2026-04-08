@@ -49,12 +49,14 @@ class FixServerTest {
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
+        FixSessionImpl.ClientSeqMsgId serverSeqMsgId = new InMemoryClientSeqMsgId();
         final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder);
 
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         new MyPerTargetBuilder(serializerProvider, headerDesc,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, serverMsgSeqProvider),
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE,
+                                        serverMsgSeqProvider, serverSeqMsgId),
                                 new ServerUserLogonSessionFactory(headerDesc, scheduledExecutorService)));
         final FixServer fixServer = new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
 
@@ -63,14 +65,16 @@ class FixServerTest {
         final int port = fixServer.getPort();
 
         final BasicMsgSeqProvider clientMsgSeqProvider = new BasicMsgSeqProvider();
+        FixSessionImpl.ClientSeqMsgId clientSeqMsgId = new InMemoryClientSeqMsgId();
         Ref<CompletableFuture<TestUserClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
-        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(clientMsgSeqProvider, testUserClientLogonSession -> {
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
             testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
         });
         final FixClient fixClient = new FixClient("localhost", port,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider),
+                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE,
+                                        clientMsgSeqProvider, clientSeqMsgId),
                                 serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),
@@ -101,7 +105,7 @@ class FixServerTest {
             testUserClientLogonSession.subscribe("EUR", priceListener);
             System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
 
-            fixClient.disconnect();
+            fixClient.disconnect().join();
         }
         priceListener.actualPrices = new CompletableFuture<>();
         {
@@ -146,14 +150,15 @@ class FixServerTest {
         }
     }
 
-    static private class InMemoryClientSeqMsgId implements FixSessionImpl.ClientSeqMsgId {
+    static public class InMemoryClientSeqMsgId implements FixSessionImpl.ClientSeqMsgId {
         private final AtomicInteger currentSeqNum = new AtomicInteger(0);
         @Override
-        public void next(int expectedNext) {
+        public int next(int expectedNext) {
             final int i = currentSeqNum.incrementAndGet();
             if (i != expectedNext) {
                 throw new RuntimeException("invalide state " + i + " was expected but gor " + expectedNext);
             }
+            return i + 1;
         }
 
         @Override
@@ -173,7 +178,6 @@ class FixServerTest {
 
 
     public static class ClientUserLogonSessionFactory implements UserLogonSessionFactory {
-        private final MsgSeqProvider clientMsgSeqProvider;
         private final NotifyNewClient notifyNewClient;
 
 
@@ -181,40 +185,35 @@ class FixServerTest {
             void newClient(TestUserClientLogonSession testUserClientLogonSession);
         }
 
-        ClientUserLogonSessionFactory(MsgSeqProvider clientMsgSeqProvider, NotifyNewClient notifyNewClient) {
-            this.clientMsgSeqProvider = clientMsgSeqProvider;
+        ClientUserLogonSessionFactory(NotifyNewClient notifyNewClient) {
             this.notifyNewClient = notifyNewClient;
         }
 
         @Override
         public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
             TestUserClientLogonSession testUserClientLogonSession =
-                    new TestUserClientLogonSession(clientMsgSeqProvider, shutdown, "ZF", "AF", new InMemoryClientSeqMsgId());
+                    new TestUserClientLogonSession(shutdown, "ZF", "AF");
             notifyNewClient.newClient(testUserClientLogonSession);
             return testUserClientLogonSession;
         }
     }
 
     public static class TestUserClientLogonSession implements FixSessionImpl.UserLogonSession, Connected {
-        private final MsgSeqProvider clientMsgSeqProvider;
         private final Shutdown shutdown;
         private final String senderCompID;
         private final String targetCompoID;
         private final Map<String, PriceListener> listeners = new HashMap<>();
-        private FixSessionImpl.ClientSeqMsgId clientSeqMsg;
 
-        public TestUserClientLogonSession(MsgSeqProvider clientMsgSeqProvider, Shutdown shutdown,
-                                          String senderCompID, String targetCompoID, FixSessionImpl.ClientSeqMsgId clientSeqMsg1) {
-            this.clientMsgSeqProvider = clientMsgSeqProvider;
+        public TestUserClientLogonSession(Shutdown shutdown,
+                                          String senderCompID, String targetCompoID) {
             this.shutdown = shutdown;
             this.senderCompID = senderCompID;
             this.targetCompoID = targetCompoID;
-            clientSeqMsg = clientSeqMsg1;
         }
 
         @Override
         public FixSessionImpl.UserSession initiator() {
-            return new ClientUserSession(this, clientSeqMsg);
+            return new ClientUserSession(this);
         }
 
         @Override
@@ -242,11 +241,9 @@ class FixServerTest {
 
         private class ClientUserSession implements FixSessionImpl.UserSession {
             private final Connected connected;
-            private final FixSessionImpl.ClientSeqMsgId clientSeqMsg;
 
-            public ClientUserSession(Connected connected, FixSessionImpl.ClientSeqMsgId clientSeqMsg) {
+            public ClientUserSession(Connected connected) {
                 this.connected = connected;
-                this.clientSeqMsg = clientSeqMsg;
             }
 
 
@@ -258,11 +255,6 @@ class FixServerTest {
             @Override
             public Glob getLogon() {
                 return LogonType.create(1000);
-            }
-
-            @Override
-            public FixSessionImpl.ClientSeqMsgId getSeqMsg() {
-                return clientSeqMsg;
             }
 
             @Override
@@ -309,11 +301,13 @@ class FixServerTest {
 
     //------------------------- Acceptor side
 
+
     public static class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
         private final HeaderDesc headerDesc;
         private final ScheduledExecutorService scheduledExecutorService;
 
-        public ServerUserLogonSessionFactory(HeaderDesc headerDesc, ScheduledExecutorService scheduledExecutorService) {
+        public ServerUserLogonSessionFactory(HeaderDesc headerDesc,
+                                             ScheduledExecutorService scheduledExecutorService) {
             this.headerDesc = headerDesc;
             this.scheduledExecutorService = scheduledExecutorService;
         }
@@ -328,13 +322,11 @@ class FixServerTest {
         private final HeaderDesc headerDesc;
         private final Shutdown shutdown;
         private final Pricer pricer;
-        private final InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
 
         public TestUserServerLogonSession(HeaderDesc headerDesc, Shutdown shutdown, Pricer pricer) {
             this.headerDesc = headerDesc;
             this.shutdown = shutdown;
             this.pricer = pricer;
-
         }
 
         @Override
@@ -344,7 +336,8 @@ class FixServerTest {
 
         @Override
         public FixSessionImpl.UserSession acceptor(String senderCompID, String targetCompID) {
-            return new ServerPricerUserSession(senderCompID, targetCompID);
+            // accept connection en inverse sender and target
+            return new ServerPricerUserSession(targetCompID, senderCompID);
         }
 
         private class ServerPricerUserSession implements FixSessionImpl.UserSession {
@@ -388,11 +381,6 @@ class FixServerTest {
             }
 
             @Override
-            public FixSessionImpl.ClientSeqMsgId getSeqMsg() {
-                return inMemoryClientSeqMsgId;
-            }
-
-            @Override
             public MutableGlob getHeader() {
                 return HeaderType.create(senderCompID, targetCompID);
             }
@@ -418,7 +406,7 @@ class FixServerTest {
                                                              ByteReader byteReader, byte[] initialBuffer, int len) {
             final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
             final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader, initialBuffer, len);
-            return new NewAcceptorFixConnectionImpl.PerTarget(cachedData.cachedData(), reader,
+            return new NewAcceptorFixConnectionImpl.PerTarget(cachedData.clientSeqMsgId(), cachedData.cachedData(), reader,
                     serializerProvider.getWriter(senderCompID, targetCompID).createWriter(publish, cachedData.msgSeqProvider()), headerDesc, serverUserLogonSessionFactory);
         }
     }

@@ -23,7 +23,7 @@ public class FixClient {
         logoutCompletableFuture = onNewConnection.newConnection(socket);
     }
 
-    public void disconnect(){
-        logoutCompletableFuture.join().close();
+    public CompletableFuture<Boolean> disconnect(){
+        return logoutCompletableFuture.join().close();
     }
 }

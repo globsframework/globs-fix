@@ -48,6 +48,7 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
 
         final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
                 userSession,
+                cachedData.clientSeqMsgId(),
                 cachedData.cachedData(), headerDesc, shutdown, true);
         executorService.execute(fixSession);
         logoutCompletableFuture.complete(fixSession::logout);

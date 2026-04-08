@@ -19,8 +19,8 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
     private final byte sep;
     private final PerTargetBuilder perTargetBuilder;
 
-    public record PerTarget(CachedData cachedData, FixReader fixReader, FixWriter fixWriter,
-                     HeaderDesc headerDesc, UserLogonSessionFactory userLogonSessionFactory) {
+    public record PerTarget(FixSessionImpl.ClientSeqMsgId clientSeqMsgId, CachedData cachedData, FixReader fixReader, FixWriter fixWriter,
+                            HeaderDesc headerDesc, UserLogonSessionFactory userLogonSessionFactory) {
     }
 
     public interface PerTargetBuilder {
@@ -85,6 +85,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
             final FixSessionImpl.UserLogonSession userLogonSession = perTarget.userLogonSessionFactory().create(shutdown);
             final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, perTarget.fixReader(), perTarget.fixWriter(),
                     userLogonSession.acceptor(senderComp, targetComp),
+                    perTarget.clientSeqMsgId(),
                     perTarget.cachedData(), perTarget.headerDesc(), shutdown, false);
             logoutCompletableFuture.complete(fixSession::logout);
             executorService.execute(fixSession);

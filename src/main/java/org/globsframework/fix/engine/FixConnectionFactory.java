@@ -23,7 +23,7 @@ public class FixConnectionFactory implements OnNewConnection {
 
 
     public interface FixLogout {
-        void close();
+        CompletableFuture<Boolean> close();
     }
 
     public interface NewFixConnection {
