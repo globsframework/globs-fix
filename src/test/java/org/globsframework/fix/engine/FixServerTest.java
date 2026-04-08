@@ -50,14 +50,15 @@ class FixServerTest {
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
         FixSessionImpl.ClientSeqMsgId serverSeqMsgId = new InMemoryClientSeqMsgId();
-        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder);
+        final DefaultSerializerProvider serializerProvider =
+                new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
 
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
-                        new MyPerTargetBuilder(serializerProvider, headerDesc,
+                        serializerProvider,
                                 (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE,
                                         serverMsgSeqProvider, serverSeqMsgId),
-                                new ServerUserLogonSessionFactory(headerDesc, scheduledExecutorService)));
+                                new ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
 
         executorService.submit(fixServer::processConnections);
@@ -303,28 +304,23 @@ class FixServerTest {
 
 
     public static class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
-        private final HeaderDesc headerDesc;
         private final ScheduledExecutorService scheduledExecutorService;
 
-        public ServerUserLogonSessionFactory(HeaderDesc headerDesc,
-                                             ScheduledExecutorService scheduledExecutorService) {
-            this.headerDesc = headerDesc;
+        public ServerUserLogonSessionFactory(ScheduledExecutorService scheduledExecutorService) {
             this.scheduledExecutorService = scheduledExecutorService;
         }
 
         @Override
         public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
-            return new TestUserServerLogonSession(headerDesc, shutdown, new PricerImpl(scheduledExecutorService));
+            return new TestUserServerLogonSession(shutdown, new PricerImpl(scheduledExecutorService));
         }
     }
 
     private static class TestUserServerLogonSession implements FixSessionImpl.UserLogonSession {
-        private final HeaderDesc headerDesc;
         private final Shutdown shutdown;
         private final Pricer pricer;
 
-        public TestUserServerLogonSession(HeaderDesc headerDesc, Shutdown shutdown, Pricer pricer) {
-            this.headerDesc = headerDesc;
+        public TestUserServerLogonSession(Shutdown shutdown, Pricer pricer) {
             this.shutdown = shutdown;
             this.pricer = pricer;
         }
@@ -384,30 +380,6 @@ class FixServerTest {
             public MutableGlob getHeader() {
                 return HeaderType.create(senderCompID, targetCompID);
             }
-        }
-    }
-
-    public static class MyPerTargetBuilder implements NewAcceptorFixConnectionImpl.PerTargetBuilder {
-        private final SerializerProvider serializerProvider;
-        private final HeaderDesc headerDesc;
-        private final CacheProvider cacheProvider;
-        private final ServerUserLogonSessionFactory serverUserLogonSessionFactory;
-
-        public MyPerTargetBuilder(SerializerProvider serializerProvider, HeaderDesc headerDesc, CacheProvider cacheProvider,
-                                  ServerUserLogonSessionFactory serverUserLogonSessionFactory) {
-            this.serializerProvider = serializerProvider;
-            this.headerDesc = headerDesc;
-            this.cacheProvider = cacheProvider;
-            this.serverUserLogonSessionFactory = serverUserLogonSessionFactory;
-        }
-
-        @Override
-        public NewAcceptorFixConnectionImpl.PerTarget create(String senderCompID, String targetCompID, Publish publish,
-                                                             ByteReader byteReader, byte[] initialBuffer, int len) {
-            final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
-            final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader, initialBuffer, len);
-            return new NewAcceptorFixConnectionImpl.PerTarget(cachedData.clientSeqMsgId(), cachedData.cachedData(), reader,
-                    serializerProvider.getWriter(senderCompID, targetCompID).createWriter(publish, cachedData.msgSeqProvider()), headerDesc, serverUserLogonSessionFactory);
         }
     }
 

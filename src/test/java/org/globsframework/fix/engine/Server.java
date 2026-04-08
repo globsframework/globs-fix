@@ -31,7 +31,7 @@ public class Server {
         final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
-        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder);
+        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
@@ -39,9 +39,9 @@ public class Server {
         final FixServerTest.InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new FixServerTest.InMemoryClientSeqMsgId();
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
-                        new FixServerTest.MyPerTargetBuilder(serializerProvider, headerDesc,
+                        serializerProvider,
                                 (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, serverMsgSeqProvider, inMemoryClientSeqMsgId),
-                                new FixServerTest.ServerUserLogonSessionFactory(headerDesc, scheduledExecutorService)));
+                                new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 5456, new FixConnectionFactory(acceptorFixConnection, new FixServerTest.LoggerPublish()));
 
         executorService.submit(fixServer::processConnections);

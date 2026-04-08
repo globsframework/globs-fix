@@ -6,10 +6,17 @@ import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 class DefaultSerializerProvider implements SerializerProvider {
     private final DeserializerFixReaderBuilder deserializerFixReaderBuilder;
     private final SerializerFixWriterBuilder serializerFixWriterBuilder;
+    private final HeaderDesc headerDesc;
 
-    public DefaultSerializerProvider(DeserializerFixReaderBuilder deserializerFixReaderBuilder, SerializerFixWriterBuilder serializerFixWriterBuilder) {
+    public DefaultSerializerProvider(DeserializerFixReaderBuilder deserializerFixReaderBuilder, SerializerFixWriterBuilder serializerFixWriterBuilder, HeaderDesc headerDesc) {
         this.deserializerFixReaderBuilder = deserializerFixReaderBuilder;
         this.serializerFixWriterBuilder = serializerFixWriterBuilder;
+        this.headerDesc = headerDesc;
+    }
+
+    @Override
+    public HeaderDesc getHeaderDesc(String senderCompID, String targetCompID) {
+        return headerDesc;
     }
 
     @Override
