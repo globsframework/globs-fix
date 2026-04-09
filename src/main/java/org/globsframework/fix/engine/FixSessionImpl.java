@@ -78,6 +78,7 @@ public class FixSessionImpl implements Runnable {
         final Glob header = userSession.getHeader();
         ident = header.get(headerDesc.senderCompIDField()) + "-" +
                 header.get(headerDesc.targetCompIDField());
+        log.info(ident + " new session expected seq " + expectedNext);
     }
 
     public CompletableFuture<Boolean> logout() {
@@ -150,7 +151,7 @@ public class FixSessionImpl implements Runnable {
 
         int current();
 
-        void reset(int lastReceived);
+        int reset(int lastReceived);
     }
 
     @Override
@@ -183,7 +184,7 @@ public class FixSessionImpl implements Runnable {
                         treatMsgAndReset(message);
                     }
                     if (seqNum != -1) {
-                        clientSeqMsgId.reset(seqNum);
+                        expectedNext = clientSeqMsgId.reset(seqNum);
                     }
                 } else {
                     sentLogon();
@@ -193,7 +194,7 @@ public class FixSessionImpl implements Runnable {
                 }
             }
         } catch (RuntimeException e) {
-            log.error("error at init " + e.getMessage(), e);
+            log.error(ident + " error at init " + e.getMessage(), e);
             closedCompletable.completeExceptionally(e);
             return;
         }
@@ -233,13 +234,14 @@ public class FixSessionImpl implements Runnable {
                         treatMsgAndReset(fixMessageValue);
                     }
                     if (seqNum != -1) {
-                        clientSeqMsgId.reset(seqNum);
+                        expectedNext = clientSeqMsgId.reset(seqNum);
                     }
                     return;
                 }
             } else if (seq < expectedNext) {
                 if (!read.header().isTrue(headerDesc.isDup())) {
-                    throw new IncoherentStateException("Sequence number received " + seq + " is lower than expected: " + expectedNext);
+                    throw new IncoherentStateException("Sequence number received " + seq + " is lower than expected: " + expectedNext
+                    + " for " + read);
                 }
                 else {
                     log.info(ident + " [ logon] duplicate message ignored.");
@@ -273,7 +275,7 @@ public class FixSessionImpl implements Runnable {
         } else {
             appMessageReceiver.messages(fixMessageValue);
         }
-        clientSeqMsgId.reset(fixMessageValue.header().get(headerDesc.seqNumField()));
+        expectedNext = clientSeqMsgId.reset(fixMessageValue.header().get(headerDesc.seqNumField()));
     }
 
 
@@ -335,7 +337,7 @@ public class FixSessionImpl implements Runnable {
                     treatMsgAndReset(fixMessageValue);
                 });
                 if (seqNum != -1) {
-                    clientSeqMsgId.reset(seqNum);
+                    expectedNext = clientSeqMsgId.reset(seqNum);
                 }
             }
         } else {
@@ -371,7 +373,7 @@ public class FixSessionImpl implements Runnable {
         List<FixMessageValue> nextMessages = new ArrayList<>();
         nextMessages.add(lastMessage);
         FixMessageValue read = reader.read();
-        log.info(ident + " [GAP] New message" + read);
+        log.info(ident + " [GAP] New message " + read);
         while (true) {
             final Glob header = read.header();
             int seq = header.get(headerDesc.seqNumField());
@@ -387,6 +389,7 @@ public class FixSessionImpl implements Runnable {
             if (seq == expectedNext) {
                 nextMessages.add(read);
                 if (message.getType() == SequenceResetType.TYPE) {
+                    log.info(ident + " sequence reset");
                     if (message.isTrue(SequenceResetType.gapFillFlag)) {
                         final int tmp = message.get(SequenceResetType.newSeqNo);
                         nextWantedSeqNum = Math.max(tmp, nextWantedSeqNum);
@@ -512,11 +515,11 @@ public class FixSessionImpl implements Runnable {
                         null); // send GapFill for trailing admin messages
             }
         } else {
-            int seq = message.header().get(headerDesc.seqNumField(), -1);
+            int seq = message.header().getNotNull(headerDesc.seqNumField());
             final int newSeqNo = endSeq == 0 ? seq : endSeq;
-            log.info(ident + " [resend] reset to end " + newSeqNo);
+            log.info(ident + " [resend] reset to end " + newSeqNo + 1);
             writer.write(userSession.getHeader().duplicate(),
-                    SequenceResetType.create(true, newSeqNo), null);
+                    SequenceResetType.create(true, newSeqNo + 1), null);
         }
     }
 

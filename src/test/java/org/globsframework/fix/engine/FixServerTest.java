@@ -119,7 +119,23 @@ class FixServerTest {
             testUserClientLogonSession.subscribe("EUR", priceListener);
             System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
 
-            fixClient.disconnect();
+            fixClient.disconnect().join();
+        }
+
+        //test GAP.
+        priceListener.actualPrices = new CompletableFuture<>();
+        clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
+        {
+            testUserClientLogonSessionRef.set(new CompletableFuture<>());
+            fixClient.connect();
+
+            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+
+            priceListener.actualPrices = new CompletableFuture<>();
+            testUserClientLogonSession.subscribe("EUR", priceListener);
+            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+
+            fixClient.disconnect().join();
         }
 
     }
@@ -157,7 +173,7 @@ class FixServerTest {
         public int next(int expectedNext) {
             final int i = currentSeqNum.incrementAndGet();
             if (i != expectedNext) {
-                throw new RuntimeException("invalide state " + i + " was expected but gor " + expectedNext);
+                throw new RuntimeException("invalide state " + i + " was expected but got " + expectedNext);
             }
             return i + 1;
         }
@@ -168,8 +184,9 @@ class FixServerTest {
         }
 
         @Override
-        public void reset(int lastReceived) {
+        public int reset(int lastReceived) {
             currentSeqNum.set(lastReceived);
+            return lastReceived + 1;
         }
     }
 
@@ -193,7 +210,7 @@ class FixServerTest {
         @Override
         public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
             TestUserClientLogonSession testUserClientLogonSession =
-                    new TestUserClientLogonSession(shutdown, "ZF", "AF");
+                    new TestUserClientLogonSession(shutdown, "AF", "BNP");
             notifyNewClient.newClient(testUserClientLogonSession);
             return testUserClientLogonSession;
         }
