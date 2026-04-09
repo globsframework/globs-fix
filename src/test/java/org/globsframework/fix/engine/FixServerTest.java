@@ -122,8 +122,41 @@ class FixServerTest {
             fixClient.disconnect().join();
         }
 
-        //test GAP.
+        //test GAP in client
         priceListener.actualPrices = new CompletableFuture<>();
+        clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
+        {
+            testUserClientLogonSessionRef.set(new CompletableFuture<>());
+            fixClient.connect();
+
+            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+
+            priceListener.actualPrices = new CompletableFuture<>();
+            testUserClientLogonSession.subscribe("EUR", priceListener);
+            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+
+            fixClient.disconnect().join();
+        }
+
+        //test GAP on server side
+        priceListener.actualPrices = new CompletableFuture<>();
+        serverSeqMsgId.reset(serverSeqMsgId.current() - 4);
+        {
+            testUserClientLogonSessionRef.set(new CompletableFuture<>());
+            fixClient.connect();
+
+            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+
+            priceListener.actualPrices = new CompletableFuture<>();
+            testUserClientLogonSession.subscribe("EUR", priceListener);
+            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+
+            fixClient.disconnect().join();
+        }
+
+        //test GAP on server and client side
+        priceListener.actualPrices = new CompletableFuture<>();
+        serverSeqMsgId.reset(serverSeqMsgId.current() - 4);
         clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());

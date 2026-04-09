@@ -263,7 +263,11 @@ public class FixSessionImpl implements Runnable {
                     return;
                 } else {
                     log.info(ident + " [logon] new message");
-                    messages.add(read);
+                    if (FixAdminModel.TYPES.contains(read.message().getType())) {
+                        manageAdminMessage(read.message().getType(), read);
+                    } else {
+                        messages.add(read);
+                    }
                 }
             }
         }
@@ -387,7 +391,6 @@ public class FixSessionImpl implements Runnable {
                 return -1;
             }
             if (seq == expectedNext) {
-                nextMessages.add(read);
                 if (message.getType() == SequenceResetType.TYPE) {
                     log.info(ident + " sequence reset");
                     if (message.isTrue(SequenceResetType.gapFillFlag)) {
@@ -408,6 +411,10 @@ public class FixSessionImpl implements Runnable {
                         // check what to do with pending messages.
                         return tmp;
                     }
+                } else if (FixAdminModel.TYPES.contains(read.message().getType())) {
+                    manageAdminMessage(read.message().getType(), read);
+                } else {
+                    nextMessages.add(read);
                 }
                 expectedNext++;
             } else if (seq > expectedNext) {
@@ -517,7 +524,7 @@ public class FixSessionImpl implements Runnable {
         } else {
             int seq = message.header().getNotNull(headerDesc.seqNumField());
             final int newSeqNo = endSeq == 0 ? seq : endSeq;
-            log.info(ident + " [resend] reset to end " + newSeqNo + 1);
+            log.info(ident + " [resend] reset to end " + (newSeqNo + 1));
             writer.write(userSession.getHeader().duplicate(),
                     SequenceResetType.create(true, newSeqNo + 1), null);
         }
