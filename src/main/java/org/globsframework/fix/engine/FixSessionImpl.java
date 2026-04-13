@@ -212,6 +212,9 @@ public class FixSessionImpl implements Runnable {
                 log.info(ident + " [logon] gap detected " + seq + " vs " + expectedNext);
                 Ref<FixMessageValue> logonRef = new Ref<>();
                 List<FixMessageValue> replayMsg = new ArrayList<>();
+                if (FixAdminModel.TYPES.contains(read.message().getType())) {
+                    manageAdminMessage(read.message().getType(), read);
+                }
                 int seqNum = requestAndManageGap(expectedNext, seq, read, (e, past) -> {
                     if (!past) {
                         final GlobType type = e.message().getType();
@@ -396,7 +399,7 @@ public class FixSessionImpl implements Runnable {
                     if (message.isTrue(SequenceResetType.gapFillFlag)) {
                         final int tmp = message.get(SequenceResetType.newSeqNo);
                         nextWantedSeqNum = Math.max(tmp, nextWantedSeqNum);
-                        if (nextWantedSeqNum >= firstKnownReceivedSeqNum) {
+                        if (nextWantedSeqNum >= firstKnownReceivedSeqNum - 1) {
                             nextMessages.add(read);
                             for (FixMessageValue nextMessage : nextMessages) {
                                 publish.publish(nextMessage, false);
@@ -412,10 +415,9 @@ public class FixSessionImpl implements Runnable {
                         return tmp;
                     }
                 } else if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                    manageAdminMessage(read.message().getType(), read);
-                } else {
-                    nextMessages.add(read);
+                    manageAdminMessage(read.message().getType(), read); //on traite
                 }
+                nextMessages.add(read);
                 expectedNext++;
             } else if (seq > expectedNext) {
                 final String msg = ident + " [GAP]  gap during refill, expecting " + expectedNext + " but got " + seq;
