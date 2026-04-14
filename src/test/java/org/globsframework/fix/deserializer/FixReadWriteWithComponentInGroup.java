@@ -63,7 +63,7 @@ public class FixReadWriteWithComponentInGroup {
                         PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s3"),
                                 PartialNews.SecurityAltType.create("s4"))));
 
-        writer.write(HeaderType.create("AA", "BB"), news, null);
+        writer.write(HeaderType.create("AA", "BB"), news, null, false);
 
         assertEquals(1, datas.size());
 

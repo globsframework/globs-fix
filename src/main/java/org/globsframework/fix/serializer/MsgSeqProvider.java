@@ -3,9 +3,8 @@ package org.globsframework.fix.serializer;
 public interface MsgSeqProvider {
     int next();
 
-    int curent();
+    void revert();
 
-    //    int current();
+    void reset();
 
-//    void reset();
 }

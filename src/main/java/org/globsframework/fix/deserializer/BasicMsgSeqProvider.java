@@ -15,11 +15,18 @@ public class BasicMsgSeqProvider implements MsgSeqProvider {
     }
 
     @Override
-    synchronized public int curent() {
+    synchronized public void revert() {
         if (closed) {
-            throw new RuntimeException("seq num provider is closed");
+            throw new RuntimeException("seq num provider is closed can not revert");
         }
-        return counter;
+        counter--;
     }
 
+    @Override
+    synchronized public void reset() {
+        if (closed) {
+            throw new RuntimeException("seq num provider is closed can not reset");
+        }
+        counter = 0;
+    }
 }

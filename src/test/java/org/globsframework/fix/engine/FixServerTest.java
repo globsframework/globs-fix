@@ -16,6 +16,7 @@ import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
 import org.globsframework.fix.serializer.*;
 import org.globsframework.json.GSonUtils;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,35 +34,41 @@ import java.util.concurrent.atomic.AtomicInteger;
 class FixServerTest {
 
     private static final Logger log = LoggerFactory.getLogger(FixServerTest.class);
+    private FixModel fixModel;
+    private GlobModel globModel;
+    private DeserializerFixReaderBuilder deserializerFixReaderBuilder;
+    private SerializerFixWriterBuilder serializerFixWriterBuilder;
+    private HeaderDesc headerDesc;
+    private ExecutorService executorService;
+    private ScheduledExecutorService scheduledExecutorService;
+    private DefaultSerializerProvider serializerProvider;
 
-    @Test
-    void clientServer() throws IOException, ExecutionException, InterruptedException, TimeoutException {
-        final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
+
+    @BeforeEach
+    void setUp() throws IOException {
+        fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(getClass().getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
-        final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
+        globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
 
-        final DeserializerFixReaderBuilder deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
+        deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+        serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+        headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
-        final ExecutorService executorService = Executors.newCachedThreadPool();
-        final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        executorService = Executors.newCachedThreadPool();
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 //        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
-        final DefaultSerializerProvider serializerProvider =
-                new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+        serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+    }
+
+    @Test
+    void clientServer() throws IOException, ExecutionException, InterruptedException, TimeoutException {
+
         final NewAcceptorFixConnectionImpl.NoCacheDataAdapt acceptorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
         ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
 
-        final NewAcceptorFixConnectionImpl acceptorFixConnection =
-                new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
-                        serializerProvider,
-                                (String senderCompID, String targetCompID) -> {
-                                    return acceptorDataAdapt;
-                                },
-                                new ServerUserLogonSessionFactory(scheduledExecutorService));
-        final FixServer fixServer = new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
+        final FixServer fixServer = createFixServer(acceptorDataAdapt);
 
         executorService.submit(fixServer::processConnections);
 
@@ -73,30 +80,10 @@ class FixServerTest {
         });
         final NewAcceptorFixConnectionImpl.NoCacheDataAdapt initiatorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
         ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
-        final FixClient fixClient = new FixClient("localhost", port,
-                new FixConnectionFactory(
-                        new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> initiatorDataAdapt,
-                                serializerProvider,
-                                HeaderDesc.create(HeaderType.TYPE)
-                        ),
-                        new LoggerPublish()));
 
-        final var priceListener = new TestUserClientLogonSession.PriceListener() {
-            CompletableFuture<List<String>> actualPrices;
-            List<String> prices = new ArrayList<>();
+        final FixClient fixClient = createFixClient(port, userLogonSessionFactory, initiatorDataAdapt);
 
-            @Override
-            public void priceChanged(String str, String p) {
-                log.info("EUR price changed: " + str + " " + p);
-                prices.add(p);
-                if (prices.size() == 3) {
-                    actualPrices.complete(prices);
-                    prices = new ArrayList<>();
-                    actualPrices = null;
-                }
-            }
-        };
+        final PriceListenerImpl priceListener = new PriceListenerImpl();
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
@@ -172,6 +159,28 @@ class FixServerTest {
             fixClient.disconnect().join();
         }
 
+    }
+
+    private FixServer createFixServer(NewAcceptorFixConnectionImpl.NoCacheDataAdapt acceptorDataAdapt) throws IOException {
+        final NewAcceptorFixConnectionImpl acceptorFixConnection =
+                new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
+                        serializerProvider,
+                                (String senderCompID, String targetCompID) -> {
+                                    return acceptorDataAdapt;
+                                },
+                                new ServerUserLogonSessionFactory(scheduledExecutorService));
+        return new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
+    }
+
+    private FixClient createFixClient(int port, ClientUserLogonSessionFactory userLogonSessionFactory, NewAcceptorFixConnectionImpl.NoCacheDataAdapt initiatorDataAdapt) {
+        return new FixClient("localhost", port,
+                new FixConnectionFactory(
+                        new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
+                                (String senderCompID, String targetCompID) -> initiatorDataAdapt,
+                                serializerProvider,
+                                HeaderDesc.create(HeaderType.TYPE)
+                        ),
+                        new LoggerPublish()));
     }
 
     interface Pricer {
@@ -298,7 +307,7 @@ class FixServerTest {
                     for (String symbol : listeners.keySet()) {
                         appWriter.write(getHeader().duplicate(), QuoteRequestType.TYPE.instantiate()
                                         .set(QuoteRequestType.quoteReqID, symbol)
-                                , null);
+                                , null, false);
                     }
                 }
                 return new AppMessageReceiver() {
@@ -387,7 +396,7 @@ class FixServerTest {
                                         QuoteResponseType.TYPE.instantiate()
                                                 .set(QuoteResponseType.quoteRespID, quoteReqId)
                                                 .set(QuoteResponseType.bidPx, value),
-                                        null);
+                                        null, false);
                             });
                         }
                     }
@@ -411,4 +420,19 @@ class FixServerTest {
         }
     }
 
+    private static class PriceListenerImpl implements TestUserClientLogonSession.PriceListener {
+        CompletableFuture<List<String>> actualPrices;
+        List<String> prices = new ArrayList<>();
+
+        @Override
+        public void priceChanged(String str, String p) {
+            log.info("EUR price changed: " + str + " " + p);
+            prices.add(p);
+            if (prices.size() == 3) {
+                actualPrices.complete(prices);
+                prices = new ArrayList<>();
+                actualPrices = null;
+            }
+        }
+    }
 }

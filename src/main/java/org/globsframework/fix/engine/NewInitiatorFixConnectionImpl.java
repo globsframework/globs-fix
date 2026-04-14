@@ -14,19 +14,19 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
     private final ExecutorService executorService;
     private final ScheduledExecutorService scheduledExecutorService;
     private final UserLogonSessionFactory userLogonSessionFactory;
-    private final CacheProvider cacheProvider;
+    private final FixInfoProvider fixInfoProvider;
     private final SerializerProvider serializerProvider;
     private final HeaderDesc headerDesc;
 
     public NewInitiatorFixConnectionImpl(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
                                          UserLogonSessionFactory userLogonSessionFactory,
-                                         CacheProvider cacheProvider,
+                                         FixInfoProvider fixInfoProvider,
                                          SerializerProvider serializerProvider,
                                          HeaderDesc headerDesc) {
         this.executorService = executorService;
         this.scheduledExecutorService = scheduledExecutorService;
         this.userLogonSessionFactory = userLogonSessionFactory;
-        this.cacheProvider = cacheProvider;
+        this.fixInfoProvider = fixInfoProvider;
         this.serializerProvider = serializerProvider;
         this.headerDesc = headerDesc;
     }
@@ -40,14 +40,14 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
         final Glob header = userSession.getHeader();
         String senderCompID = header.get(headerDesc.senderCompIDField());
         String targetCompID = header.get(headerDesc.targetCompIDField());
-        final CacheProvider.DataAdapt cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
+        final FixInfoProvider.DataAdapt cachedData = fixInfoProvider.getCachedData(senderCompID, targetCompID);
         final FixWriter writer = cachedData.createWriter(publish, serializerProvider.getWriter(senderCompID, targetCompID));
         final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader);
 
         final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
                 userSession,
                 cachedData.clientSeqMsgId(),
-                cachedData.getCachedData(), headerDesc, shutdown, true);
+                cachedData.getCachedData(), headerDesc, shutdown, true, FixSessionImpl.Option.op(false));
         executorService.execute(fixSession);
         logoutCompletableFuture.complete(fixSession::logout);
         return logoutCompletableFuture;

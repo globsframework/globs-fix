@@ -7,11 +7,11 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.serializer.FixWriter;
 
-public class FixWriterReplay implements FixWriter, CachedData {
+public class FixWriterReplay implements FixWriter, FixMessageRepository {
     private final FixWriter writer;
     private int current;
     private boolean full;
-    private Data[] saved; // write can be inverted versus the seqnum allocation.
+    private FixMessage[] saved; // write can be inverted versus the seqnum allocation.
     // so the order is not sequential.
     private final IntegerField headerSeqNum;
     private final BooleanField possDupFlag;
@@ -24,7 +24,7 @@ public class FixWriterReplay implements FixWriter, CachedData {
                            StringField sendingTime,
                            StringField originSendingTime) {
         this.writer = writer;
-        saved = new Data[maxSize];
+        saved = new FixMessage[maxSize];
         this.headerSeqNum = headerSeqNum;
         this.possDupFlag = possDupFlag;
         this.sendingTime = sendingTime;
@@ -33,24 +33,24 @@ public class FixWriterReplay implements FixWriter, CachedData {
     }
 
     @Override
-    public void write(MutableGlob header, Glob message, MutableGlob trailer) {
-        writer.write(header, message, trailer);
+    public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
+        writer.write(header, message, trailer, false);
         if (header.isTrue(possDupFlag)) {
             return;
         }
-        final Data data = new Data(header, message, trailer);
+        final FixMessage fixMessage = new FixMessage(header, message, trailer);
         synchronized (this) {
             current++;
             if (current >= saved.length) {
                 current = 0;
                 full = true;
             }
-            saved[current] = data;
+            saved[current] = fixMessage;
         }
     }
 
     @Override
-    public Data[] get(int fromSeqNum, int toSeqNum) {
+    public FixMessage[] get(int fromSeqNum, int toSeqNum) {
         final int initialCapacity;
         if (toSeqNum == 0) {
             initialCapacity = saved.length;
@@ -61,13 +61,13 @@ public class FixWriterReplay implements FixWriter, CachedData {
         if (initialCapacity > saved.length) {
             return null;
         }
-        Data[] result = new Data[initialCapacity];
+        FixMessage[] result = new FixMessage[initialCapacity];
         synchronized (this) {
             for (int i = 0; i < (full ? saved.length : current); i++) {
-                Data dd = saved[i];
+                FixMessage dd = saved[i];
                 final int seq = dd.header().get(headerSeqNum);
                 if (seq >= fromSeqNum && seq <= toSeqNum) {
-                    result[seq - fromSeqNum] = new Data(
+                    result[seq - fromSeqNum] = new FixMessage(
                             dd.header()
                                     .duplicate()
                                     .set(possDupFlag, true)
@@ -77,7 +77,7 @@ public class FixWriterReplay implements FixWriter, CachedData {
                 }
             }
         }
-        for (Data d : result) {
+        for (FixMessage d : result) {
             if (d == null) {
                 return null;
             }

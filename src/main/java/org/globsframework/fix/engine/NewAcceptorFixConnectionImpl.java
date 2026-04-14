@@ -19,13 +19,13 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
     private final int targetCompID;
     private final byte sep;
     private final SerializerProvider serializerProvider;
-    private final CacheProvider cacheProvider;
+    private final FixInfoProvider fixInfoProvider;
     private final UserLogonSessionFactory serverUserLogonSessionFactory;
 
 
     public NewAcceptorFixConnectionImpl(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
                                         int sendCompID, int targetCompID, byte sep,
-                                        SerializerProvider serializerProvider, CacheProvider cacheProvider,
+                                        SerializerProvider serializerProvider, FixInfoProvider fixInfoProvider,
                                         UserLogonSessionFactory serverUserLogonSessionFactory) {
         this.executorService = executorService;
         this.scheduledExecutorService = scheduledExecutorService;
@@ -33,7 +33,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
         this.targetCompID = targetCompID;
         this.sep = sep;
         this.serializerProvider = serializerProvider;
-        this.cacheProvider = cacheProvider;
+        this.fixInfoProvider = fixInfoProvider;
         this.serverUserLogonSessionFactory = serverUserLogonSessionFactory;
     }
 
@@ -80,7 +80,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                 }
             }
 
-            final CacheProvider.DataAdapt dataAdapt = cacheProvider.getCachedData(senderCompID, targetCompID);
+            final FixInfoProvider.DataAdapt dataAdapt = fixInfoProvider.getCachedData(senderCompID, targetCompID);
             final DeserializerFixReaderBuilder readerBuilder = serializerProvider.getReader(senderCompID, targetCompID);
             final HeaderDesc headerDesc = serializerProvider.getHeaderDesc(senderCompID, targetCompID);
             final FixReader reader = readerBuilder.createReader(byteReader, buffer, len);
@@ -91,15 +91,15 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
             final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
                     userLogonSession.acceptor(senderCompID, targetCompID),
                     dataAdapt.clientSeqMsgId(),
-                    dataAdapt.getCachedData(), headerDesc, shutdown, false);
+                    dataAdapt.getCachedData(), headerDesc, shutdown, false,
+                    FixSessionImpl.Option.op(false));
             logoutCompletableFuture.complete(fixSession::logout);
             executorService.execute(fixSession);
         });
         return logoutCompletableFuture;
     }
 
-
-    static class NoCacheDataAdapt implements CacheProvider.DataAdapt {
+    static class NoCacheDataAdapt implements FixInfoProvider.DataAdapt {
         private final MsgSeqProvider msgSeqProvider = new BasicMsgSeqProvider();
         private final ClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
 
@@ -113,8 +113,8 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
         }
 
         @Override
-        public CachedData getCachedData() {
-            return NoCachedData.INSTANCE;
+        public FixMessageRepository getCachedData() {
+            return NoFixMessageRepository.INSTANCE;
         }
 
         @Override

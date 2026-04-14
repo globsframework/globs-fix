@@ -16,7 +16,7 @@ import java.util.Map;
 public class FixWriterImpl implements FixWriter {
     public static final int OFFSET = 32;
     private final byte[] version;
-    private final byte[] buffer = new byte[1024 * 10];
+    private final byte[] buffer = new byte[1024 * 1024];
     private final Publish publish;
     private final Map<GlobType, FieldWrite> writeMap;
     private final Map<GlobType, byte[]> typeToMessageType;
@@ -39,67 +39,81 @@ public class FixWriterImpl implements FixWriter {
     }
 
     @Override
-    synchronized public void write(MutableGlob header, Glob message, MutableGlob trailer) {
+    synchronized public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
         int at = OFFSET;
-        if (header.isNotSet(msgSeqNum)) {
+        boolean isSeqNext = header.isNotSet(msgSeqNum);
+        if (isSeqNext) {
             header.set(msgSeqNum, msgSeqProvider.next());
+        }
+        if (resetSeqNum) {
+            msgSeqProvider.reset();
         }
         if (header.isNotSet(sendingTime)) {
             header.set(sendingTime, ZonedDateTime.now());
         }
-        at = write(header, at);
-        at = write(message, at);
-        int endAt = write(trailer, at);
+        int startAt = 0;
+        int s = 0;
+        try {
+            at = write(header, at);
+            at = write(message, at);
+            int endAt = write(trailer, at);
 
-        final byte[] msgType = typeToMessageType.get(message.getType());
-        int len = endAt - OFFSET + 4 + msgType.length; // add
+            final byte[] msgType = typeToMessageType.get(message.getType());
+            int len = endAt - OFFSET + 4 + msgType.length; // add
 
-        final int lenInBytes = Utils.len(len);
+            final int lenInBytes = Utils.len(len);
 
-        int startAt = OFFSET - 2 - version.length - 3 - lenInBytes - 1 - 3 - msgType.length - 1;
-        at = startAt;
-        buffer[at++] = '8';
-        buffer[at++] = '=';
-        System.arraycopy(version, 0, buffer, at, version.length);
-        at += version.length;
-        buffer[at++] = 0x1;
-        buffer[at++] = '9';
-        buffer[at++] = '=';
-        at = Utils.fastCopy(buffer, at, len);
-        buffer[at++] = 0x1;
+            startAt = OFFSET - 2 - version.length - 3 - lenInBytes - 1 - 3 - msgType.length - 1;
+            at = startAt;
+            buffer[at++] = '8';
+            buffer[at++] = '=';
+            System.arraycopy(version, 0, buffer, at, version.length);
+            at += version.length;
+            buffer[at++] = 0x1;
+            buffer[at++] = '9';
+            buffer[at++] = '=';
+            at = Utils.fastCopy(buffer, at, len);
+            buffer[at++] = 0x1;
 
-        buffer[at++] = '3';
-        buffer[at++] = '5';
-        buffer[at++] = '=';
-        at = Utils.fastCopy(buffer, at, msgType);
-        buffer[at++] = 0x1;
+            buffer[at++] = '3';
+            buffer[at++] = '5';
+            buffer[at++] = '=';
+            at = Utils.fastCopy(buffer, at, msgType);
+            buffer[at++] = 0x1;
 
-        if (at != OFFSET) {
-            throw new RuntimeException("Bug in start " + at + "!=32");
-        }
-        long sum = 0;
-        for (int i = startAt; i < endAt; i++) {
-            sum += buffer[i];
-        }
-        at = endAt;
-        buffer[at++] = '1';
-        buffer[at++] = '0';
-        int s = Math.toIntExact(sum % 256);
-        buffer[at++] = '=';
-        if (s < 10) {
+            if (at != OFFSET) {
+                throw new RuntimeException("Bug in start " + at + "!=32");
+            }
+            long sum = 0;
+            for (int i = startAt; i < endAt; i++) {
+                sum += buffer[i];
+            }
+            at = endAt;
+            buffer[at++] = '1';
             buffer[at++] = '0';
-            buffer[at++] = '0';
-            buffer[at++] = (byte) ('0' + s);
-        } else if (s < 100) {
-            buffer[at++] = '0';
-            buffer[at++] = (byte) ('0' + s / 10);
-            buffer[at++] = (byte) ('0' + s % 10);
-        } else {
-            buffer[at++] = (byte) ('0' + s / 100);
-            buffer[at++] = (byte) ('0' + (s / 10) % 10);
-            buffer[at++] = (byte) ('0' + s % 10);
+            s = Math.toIntExact(sum % 256);
+            buffer[at++] = '=';
+            if (s < 10) {
+                buffer[at++] = '0';
+                buffer[at++] = '0';
+                buffer[at++] = (byte) ('0' + s);
+            } else if (s < 100) {
+                buffer[at++] = '0';
+                buffer[at++] = (byte) ('0' + s / 10);
+                buffer[at++] = (byte) ('0' + s % 10);
+            } else {
+                buffer[at++] = (byte) ('0' + s / 100);
+                buffer[at++] = (byte) ('0' + (s / 10) % 10);
+                buffer[at++] = (byte) ('0' + s % 10);
+            }
+            publish.publish(buffer, startAt, at - startAt);
+        } catch (Exception e) {
+            // can be an array out of bound or a socket write error
+            if (isSeqNext) {
+                msgSeqProvider.revert();
+            }
+            throw e;
         }
-        publish.publish(buffer, startAt, at - startAt);
         if (trailer != null && checksum != null) {
             trailer.set(checksum, s);
         }

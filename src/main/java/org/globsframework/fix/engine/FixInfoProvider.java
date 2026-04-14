@@ -4,13 +4,13 @@ import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.Publish;
 
-public interface CacheProvider {
+public interface FixInfoProvider {
     DataAdapt getCachedData(String senderCompID, String targetCompID);
 
     interface DataAdapt {
         FixWriter createWriter(Publish publish, FixWriterBuilder writerBuilder);
 
-        CachedData getCachedData();
+        FixMessageRepository getCachedData();
 
         ClientSeqMsgId clientSeqMsgId();
     }

@@ -27,7 +27,7 @@ public class FixSessionImpl implements Runnable {
     private final FixReader reader;
     private final FixWriter writer;
     private final FixWriter appWriter;
-    private final CachedData cachedData;
+    private final FixMessageRepository fixMessageRepository;
     private final HeaderDesc headerDesc;
     private final boolean isInitiator;
     private final Shutdown shutdown;
@@ -43,15 +43,22 @@ public class FixSessionImpl implements Runnable {
     private AppMessageReceiver appMessageReceiver;
     private int expectedNext;
     private volatile boolean closed;
+    private final Option option;
     private CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
+
+    public record Option(boolean resetSeqNumToOneOnGap) {
+        public static Option op(boolean resetSeqNumToOneOnGap) {
+            return new Option(resetSeqNumToOneOnGap);
+        }
+    }
 
     public FixSessionImpl(ScheduledExecutorService scheduledExecutorService, FixReader fixReader, FixWriter fixWriter,
                           UserSession userSession,
                           ClientSeqMsgId clientSeqMsgId,
-                          CachedData cachedData, // intercept the fixWriter call to update, if needed, the data for replay.
+                          FixMessageRepository fixMessageRepository, // intercept the fixWriter call to update, if needed, the data for replay.
                           HeaderDesc headerDesc,
                           Shutdown shutdown,
-                          boolean isInitiator) {
+                          boolean isInitiator, Option option) {
         this.scheduledExecutorService = scheduledExecutorService;
         this.reader = new FixReader() {
             @Override
@@ -62,19 +69,20 @@ public class FixSessionImpl implements Runnable {
         };
         this.writer = new FixWriter() {
             @Override
-            public void write(MutableGlob header, Glob message, MutableGlob trailer) {
+            public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
                 lastWriteOut = System.currentTimeMillis();
-                fixWriter.write(header, message, trailer);
+                fixWriter.write(header, message, trailer, false);
             }
         };
         appWriter = new AppFixWriter(headerDesc);
         this.userSession = userSession;
-        this.cachedData = cachedData;
+        this.fixMessageRepository = fixMessageRepository;
         this.headerDesc = headerDesc;
         this.isInitiator = isInitiator;
         this.shutdown = shutdown;
         this.clientSeqMsgId = clientSeqMsgId;
         expectedNext = clientSeqMsgId.current() + 1;
+        this.option = option;
         final Glob header = userSession.getHeader();
         ident = header.get(headerDesc.senderCompIDField()) + "-" +
                 header.get(headerDesc.targetCompIDField());
@@ -91,7 +99,7 @@ public class FixSessionImpl implements Runnable {
         }
         closed = true;
         writer.write(userSession.getHeader().duplicate(),
-                LogoutType.create("Logout requested."), null);
+                LogoutType.create("Logout requested."), null, false);
 
 //        while (true) {
             // add async call to close in case no response are sent.
@@ -125,13 +133,13 @@ public class FixSessionImpl implements Runnable {
                     final int seqNum = requestAndManageGap(expectedNext, seq, logon, (message, past) -> {
                         messages.add(message);
                     });
+                    if (seqNum != -1) {
+                        expectedNext = clientSeqMsgId.reset(seqNum);
+                    }
                     sentLogon();
                     appMessageReceiver = userSession.connected(logon, appWriter);
                     for (FixMessageValue message : messages) {
                         treatMsgAndReset(message);
-                    }
-                    if (seqNum != -1) {
-                        expectedNext = clientSeqMsgId.reset(seqNum);
                     }
                 } else {
                     sentLogon();
@@ -173,6 +181,9 @@ public class FixSessionImpl implements Runnable {
                     }
                     replayMsg.add(e);
                 });
+                if (seqNum != -1) {
+                    expectedNext = clientSeqMsgId.reset(seqNum);
+                }
                 if (logonRef.get() != null) {
                     log.info(ident + " [logon] found logon");
                     managedInHeartBeat(logonRef.get());
@@ -182,9 +193,6 @@ public class FixSessionImpl implements Runnable {
                     }
                     for (FixMessageValue fixMessageValue : replayMsg) {
                         treatMsgAndReset(fixMessageValue);
-                    }
-                    if (seqNum != -1) {
-                        expectedNext = clientSeqMsgId.reset(seqNum);
                     }
                     return;
                 }
@@ -270,7 +278,7 @@ public class FixSessionImpl implements Runnable {
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
         logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
-        writer.write(userSession.getHeader().duplicate(), logon, null);
+        writer.write(userSession.getHeader().duplicate(), logon, null, false);
     }
 
     private void treatNextMessage(FixMessageValue read) {
@@ -320,7 +328,7 @@ public class FixSessionImpl implements Runnable {
                                     FixMessageValue lastMessage, Publish publish) {
 
         log.info(ident + " [GAP] send ResendRequest");
-        writer.write(userSession.getHeader().duplicate(), ResendRequestType.create(firstUnknownSeqNum, firstKnownReceivedSeqNum - 1), null);
+        writer.write(userSession.getHeader().duplicate(), ResendRequestType.create(firstUnknownSeqNum, firstKnownReceivedSeqNum - 1), null, false);
 
         int nextWantedSeqNum = firstUnknownSeqNum;
         int expectedNext = firstKnownReceivedSeqNum + 1;
@@ -358,8 +366,11 @@ public class FixSessionImpl implements Runnable {
                         for (FixMessageValue nextMessage : nextMessages) {
                             publish.publish(nextMessage, false);
                         }
+                        if (tmp == 0) {
+                            throw new RuntimeException("Forbidden to reset to 0");
+                        }
                         // check what to do with pending messages.
-                        return tmp;
+                        return tmp - 1;
                     }
                 } else if (FixAdminModel.TYPES.contains(read.message().getType())) {
                     manageAdminMessage(read.message().getType(), read); //on traite
@@ -403,7 +414,7 @@ public class FixSessionImpl implements Runnable {
                         }
                     }
                     closed = true;
-                    writer.write(userSession.getHeader().duplicate(), LogoutType.create("received logout"), null);
+                    writer.write(userSession.getHeader().duplicate(), LogoutType.create("received logout"), null, false);
                     shutdown();
                 }
                 expectedNext = clientSeqMsgId.next(expectedNext);
@@ -419,7 +430,7 @@ public class FixSessionImpl implements Runnable {
                 }
             } else if (type == TestRequestType.TYPE) {
                 final String testReqId = message.message().get(TestRequestType.testReqID);
-                writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null);
+                writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null, false);
             } else if (type == ResendRequestType.TYPE) {
                 // send async
                 treatReSend(message);
@@ -442,12 +453,18 @@ public class FixSessionImpl implements Runnable {
     }
 
     private void treatReSend(FixMessageValue message) {
+        if (option.resetSeqNumToOneOnGap()) {
+            writer.write(userSession.getHeader().duplicate(),
+                    SequenceResetType.create(false, 1),
+                    null, true); // send GapFill
+            return;
+        }
         final Integer beginSeq = message.message().get(ResendRequestType.beginSeqNo);
         final int endSeq = message.message().get(ResendRequestType.endSeqNo, 0);
-        final CachedData.Data[] data = cachedData.get(beginSeq, endSeq);
+        final FixMessageRepository.FixMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
         if (data != null && data.length > 0) {
             int gapfill = -1;
-            for (CachedData.Data d : data) {
+            for (FixMessageRepository.FixMessage d : data) {
                 if (FixAdminModel.TYPES.contains(d.message().getType())) {
                     if (gapfill == -1) {
                         gapfill = d.header().get(headerDesc.seqNumField());
@@ -456,26 +473,26 @@ public class FixSessionImpl implements Runnable {
                     if (gapfill != -1) {
                         writer.write(userSession.getHeader().duplicate(),
                                 SequenceResetType.create(true, d.header().get(headerDesc.seqNumField())),
-                                null); // send GapFill
+                                null, false); // send GapFill
                         gapfill = -1;
                     }
                     writer.write(d.header().duplicate()
                                     .set(headerDesc.isDup(), true)
                                     .set(headerDesc.origSendingTime(), d.header().get(headerDesc.sendingTime()))
-                            , d.message(), d.trailer());
+                            , d.message(), d.trailer(), false);
                 }
             }
             if (gapfill != -1) {
                 writer.write(userSession.getHeader().duplicate(),
                         SequenceResetType.create(true, endSeq == 0 ? clientSeqMsgId.current() + 1 : endSeq + 1),
-                        null); // send GapFill for trailing admin messages
+                        null, false); // send GapFill for trailing admin messages
             }
         } else {
             int seq = message.header().getNotNull(headerDesc.seqNumField());
             final int newSeqNo = endSeq == 0 ? seq : endSeq;
             log.info(ident + " [resend] reset to end " + (newSeqNo + 1));
             writer.write(userSession.getHeader().duplicate(),
-                    SequenceResetType.create(true, newSeqNo + 1), null);
+                    SequenceResetType.create(true, newSeqNo + 1), null, false);
         }
     }
 
@@ -492,7 +509,7 @@ public class FixSessionImpl implements Runnable {
         long when = System.currentTimeMillis() - (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) + (heartbeatInMSIn * 15) / 100;
         if (when <= 0) {
             expectedHeartbeat = UUID.randomUUID().toString();
-            writer.write(userSession.getHeader().duplicate(), TestRequestType.create(expectedHeartbeat), null);
+            writer.write(userSession.getHeader().duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
             scheduleIn = scheduledExecutorService.schedule(this::checkReceived, heartbeatInMSIn, TimeUnit.MILLISECONDS);
         } else {
             scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, when, TimeUnit.MILLISECONDS);
@@ -522,7 +539,7 @@ public class FixSessionImpl implements Runnable {
         }
         long when = System.currentTimeMillis() - (lastWriteOut + heartbeatInMSOut) - 100;
         if (when > 500) {
-            writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(), null);
+            writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(), null, false);
             when = heartbeatInMSOut;
         }
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, when, TimeUnit.MILLISECONDS);
@@ -536,12 +553,12 @@ public class FixSessionImpl implements Runnable {
         }
 
         @Override
-        public void write(MutableGlob header, Glob message, MutableGlob trailer) {
+        public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
             if (closed) {
                 throw new RuntimeException("Session is closed");
             }
-            header.unset(headerDesc.seqNumField());// to prevent any bug
-            writer.write(header, message, trailer);
+            header.unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
+            writer.write(header, message, trailer, false);
         }
     }
 

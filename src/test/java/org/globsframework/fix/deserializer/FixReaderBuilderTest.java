@@ -59,9 +59,9 @@ class FixReaderBuilderTest {
 
         final ZonedDateTime headerTime = ZonedDateTime.parse("2026-04-01T20:33:30.123+02:00[Europe/Paris]");
         writer.write(HeaderType.create("AA", "BB").set(HeaderType.sendingTime, headerTime), HeartbeatType.create("req1"),
-                TrailerType.create("sign"));
+                TrailerType.create("sign"), false);
         writer.write(HeaderType.create("CC", "DD").set(HeaderType.sendingTime, headerTime), HeartbeatType.create("req2"),
-                TrailerType.create("sign"));
+                TrailerType.create("sign"), false);
 
         assertEquals(2, datas.size());
 
@@ -118,7 +118,7 @@ class FixReaderBuilderTest {
         Glob login = LogonType.create(1, LogonType.NoMsgTypes.create("1", "1"),
                 LogonType.NoMsgTypes.create("2", "1"));
 
-        writer.write(HeaderType.create("AA", "BB"), login, null);
+        writer.write(HeaderType.create("AA", "BB"), login, null, false);
 
         assertEquals(1, datas.size());
 
@@ -162,7 +162,7 @@ class FixReaderBuilderTest {
                         IndicationOfInterestType.SecurityAltType.create("s1"),
                         IndicationOfInterestType.SecurityAltType.create("s2")));
 
-        writer.write(HeaderType.create("AA", "BB"), msg, null);
+        writer.write(HeaderType.create("AA", "BB"), msg, null, false);
 
         assertEquals(1, datas.size());
 
