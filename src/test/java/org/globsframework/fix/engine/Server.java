@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -35,12 +34,10 @@ public class Server {
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
-        final FixServerTest.InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new FixServerTest.InMemoryClientSeqMsgId();
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, serverMsgSeqProvider, inMemoryClientSeqMsgId),
+                                (String senderCompID, String targetCompID) -> new NewAcceptorFixConnectionImpl.NoCacheDataAdapt(),
                                 new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 5456, new FixConnectionFactory(acceptorFixConnection, new FixServerTest.LoggerPublish()));
 

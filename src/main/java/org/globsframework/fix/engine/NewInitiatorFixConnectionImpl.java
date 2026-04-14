@@ -3,9 +3,7 @@ package org.globsframework.fix.engine;
 import org.globsframework.core.model.Glob;
 import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.FixReader;
-import org.globsframework.fix.deserializer.FixReaderBuilder;
 import org.globsframework.fix.serializer.FixWriter;
-import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.Publish;
 
 import java.util.concurrent.CompletableFuture;
@@ -37,19 +35,19 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
     public CompletableFuture<FixConnectionFactory.FixLogout> onNew(ByteReader byteReader, Publish publish, Shutdown shutdown) {
 
         final CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture = new CompletableFuture<>();
-        final FixSessionImpl.UserLogonSession userLogonSession = userLogonSessionFactory.create(shutdown);
-        FixSessionImpl.UserSession userSession = userLogonSession.initiator();
+        final UserLogonSession userLogonSession = userLogonSessionFactory.create(shutdown);
+        UserSession userSession = userLogonSession.initiator();
         final Glob header = userSession.getHeader();
         String senderCompID = header.get(headerDesc.senderCompIDField());
         String targetCompID = header.get(headerDesc.targetCompIDField());
-        final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
-        final FixWriter writer = serializerProvider.getWriter(senderCompID, targetCompID).createWriter(publish, cachedData.msgSeqProvider());
+        final CacheProvider.DataAdapt cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
+        final FixWriter writer = cachedData.createWriter(publish, serializerProvider.getWriter(senderCompID, targetCompID));
         final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader);
 
         final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
                 userSession,
                 cachedData.clientSeqMsgId(),
-                cachedData.cachedData(), headerDesc, shutdown, true);
+                cachedData.getCachedData(), headerDesc, shutdown, true);
         executorService.execute(fixSession);
         logoutCompletableFuture.complete(fixSession::logout);
         return logoutCompletableFuture;

@@ -1,10 +1,20 @@
 package org.globsframework.fix.engine;
 
-import org.globsframework.fix.serializer.MsgSeqProvider;
+import org.globsframework.fix.serializer.FixWriter;
+import org.globsframework.fix.serializer.FixWriterBuilder;
+import org.globsframework.fix.serializer.Publish;
 
 public interface CacheProvider {
-    SeqNumAndCache getCachedData(String senderCompID, String targetCompID);
+    DataAdapt getCachedData(String senderCompID, String targetCompID);
 
-    record SeqNumAndCache(CachedData cachedData, MsgSeqProvider msgSeqProvider, FixSessionImpl.ClientSeqMsgId clientSeqMsgId) {
+    interface DataAdapt {
+        FixWriter createWriter(Publish publish, FixWriterBuilder writerBuilder);
+
+        CachedData getCachedData();
+
+        ClientSeqMsgId clientSeqMsgId();
     }
+
+//    record SeqNumAndCache(CachedData cachedData, MsgSeqProvider msgSeqProvider, FixSessionImpl.ClientSeqMsgId clientSeqMsgId) {
+//    }
 }

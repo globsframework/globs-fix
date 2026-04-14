@@ -1,12 +1,11 @@
 package org.globsframework.fix.engine;
 
 import org.globsframework.fix.Utils;
+import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
 import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixReader;
-import org.globsframework.fix.serializer.FixWriter;
-import org.globsframework.fix.serializer.Publish;
-import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
+import org.globsframework.fix.serializer.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
@@ -81,21 +80,46 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                 }
             }
 
-            final CacheProvider.SeqNumAndCache cachedData = cacheProvider.getCachedData(senderCompID, targetCompID);
+            final CacheProvider.DataAdapt dataAdapt = cacheProvider.getCachedData(senderCompID, targetCompID);
             final DeserializerFixReaderBuilder readerBuilder = serializerProvider.getReader(senderCompID, targetCompID);
             final HeaderDesc headerDesc = serializerProvider.getHeaderDesc(senderCompID, targetCompID);
             final FixReader reader = readerBuilder.createReader(byteReader, buffer, len);
             final SerializerFixWriterBuilder writerBuilder = serializerProvider.getWriter(senderCompID, targetCompID);
-            final FixWriter writer = writerBuilder.createWriter(publish, cachedData.msgSeqProvider());
 
-            final FixSessionImpl.UserLogonSession userLogonSession = serverUserLogonSessionFactory.create(shutdown);
+            FixWriter writer = dataAdapt.createWriter(publish, writerBuilder);
+            final UserLogonSession userLogonSession = serverUserLogonSessionFactory.create(shutdown);
             final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
                     userLogonSession.acceptor(senderCompID, targetCompID),
-                    cachedData.clientSeqMsgId(),
-                    cachedData.cachedData(), headerDesc, shutdown, false);
+                    dataAdapt.clientSeqMsgId(),
+                    dataAdapt.getCachedData(), headerDesc, shutdown, false);
             logoutCompletableFuture.complete(fixSession::logout);
             executorService.execute(fixSession);
         });
         return logoutCompletableFuture;
+    }
+
+
+    static class NoCacheDataAdapt implements CacheProvider.DataAdapt {
+        private final MsgSeqProvider msgSeqProvider = new BasicMsgSeqProvider();
+        private final ClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
+
+        @Override
+        public FixWriter createWriter(Publish publish, FixWriterBuilder writerBuilder) {
+            return writerBuilder.createWriter(publish, msgSeqProvider);
+        }
+
+        public MsgSeqProvider getMsgSeqProvider() {
+            return msgSeqProvider;
+        }
+
+        @Override
+        public CachedData getCachedData() {
+            return NoCachedData.INSTANCE;
+        }
+
+        @Override
+        public ClientSeqMsgId clientSeqMsgId() {
+            return inMemoryClientSeqMsgId;
+        }
     }
 }

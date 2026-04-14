@@ -26,8 +26,6 @@ public class Client {
 
     public static void main(String[] args) throws Exception {
         CompletableFuture<FixServerTest.TestUserClientLogonSession> completableFuture = new CompletableFuture<>();
-        final BasicMsgSeqProvider clientMsgSeqProvider = new BasicMsgSeqProvider();
-        final FixServerTest.InMemoryClientSeqMsgId inMemoryClientSeqMsgId = new FixServerTest.InMemoryClientSeqMsgId();
         final FixServerTest.ClientUserLogonSessionFactory userLogonSessionFactory = new FixServerTest.ClientUserLogonSessionFactory(completableFuture::complete);
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(FixServer.class.getClassLoader().getResourceAsStream("FIX44.xml"),
@@ -42,10 +40,13 @@ public class Client {
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt noCacheDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE, clientMsgSeqProvider, inMemoryClientSeqMsgId),
+                                (String senderCompID, String targetCompID) -> {
+                                    return noCacheDataAdapt;
+                                },
                                 serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),

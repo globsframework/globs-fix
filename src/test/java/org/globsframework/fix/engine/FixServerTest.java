@@ -48,16 +48,18 @@ class FixServerTest {
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
-        FixSessionImpl.ClientSeqMsgId serverSeqMsgId = new InMemoryClientSeqMsgId();
+//        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
         final DefaultSerializerProvider serializerProvider =
                 new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt acceptorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
+        ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
 
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE,
-                                        serverMsgSeqProvider, serverSeqMsgId),
+                                (String senderCompID, String targetCompID) -> {
+                                    return acceptorDataAdapt;
+                                },
                                 new ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
 
@@ -65,17 +67,16 @@ class FixServerTest {
 
         final int port = fixServer.getPort();
 
-        final BasicMsgSeqProvider clientMsgSeqProvider = new BasicMsgSeqProvider();
-        FixSessionImpl.ClientSeqMsgId clientSeqMsgId = new InMemoryClientSeqMsgId();
         Ref<CompletableFuture<TestUserClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
         final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
             testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
         });
+        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt initiatorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
+        ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
         final FixClient fixClient = new FixClient("localhost", port,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> new CacheProvider.SeqNumAndCache(NoCachedData.INSTANCE,
-                                        clientMsgSeqProvider, clientSeqMsgId),
+                                (String senderCompID, String targetCompID) -> initiatorDataAdapt,
                                 serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),
@@ -200,29 +201,6 @@ class FixServerTest {
         }
     }
 
-    static public class InMemoryClientSeqMsgId implements FixSessionImpl.ClientSeqMsgId {
-        private final AtomicInteger currentSeqNum = new AtomicInteger(0);
-        @Override
-        public int next(int expectedNext) {
-            final int i = currentSeqNum.incrementAndGet();
-            if (i != expectedNext) {
-                throw new RuntimeException("invalide state " + i + " was expected but got " + expectedNext);
-            }
-            return i + 1;
-        }
-
-        @Override
-        public int current() {
-            return currentSeqNum.get();
-        }
-
-        @Override
-        public int reset(int lastReceived) {
-            currentSeqNum.set(lastReceived);
-            return lastReceived + 1;
-        }
-    }
-
     interface Connected {
         void connected(String targetCompID, TestUserClientLogonSession.ClientUserSession clientUserSession);
     }
@@ -241,7 +219,7 @@ class FixServerTest {
         }
 
         @Override
-        public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
+        public UserLogonSession create(Shutdown shutdown) {
             TestUserClientLogonSession testUserClientLogonSession =
                     new TestUserClientLogonSession(shutdown, "AF", "BNP");
             notifyNewClient.newClient(testUserClientLogonSession);
@@ -249,7 +227,7 @@ class FixServerTest {
         }
     }
 
-    public static class TestUserClientLogonSession implements FixSessionImpl.UserLogonSession, Connected {
+    public static class TestUserClientLogonSession implements UserLogonSession, Connected {
         private final Shutdown shutdown;
         private final String senderCompID;
         private final String targetCompoID;
@@ -263,12 +241,12 @@ class FixServerTest {
         }
 
         @Override
-        public FixSessionImpl.UserSession initiator() {
+        public UserSession initiator() {
             return new ClientUserSession(this);
         }
 
         @Override
-        public FixSessionImpl.UserSession acceptor(String senderCompID, String targetCompID) {
+        public UserSession acceptor(String senderCompID, String targetCompID) {
             throw new RuntimeException("Expected to be the initiator");
         }
 
@@ -290,7 +268,7 @@ class FixServerTest {
         }
 
 
-        private class ClientUserSession implements FixSessionImpl.UserSession {
+        private class ClientUserSession implements UserSession {
             private final Connected connected;
 
             public ClientUserSession(Connected connected) {
@@ -314,7 +292,7 @@ class FixServerTest {
             }
 
             @Override
-            public FixSessionImpl.AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
+            public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
                 synchronized (this) {
                     connected.connected(targetCompoID, this);
                     for (String symbol : listeners.keySet()) {
@@ -323,7 +301,7 @@ class FixServerTest {
                                 , null);
                     }
                 }
-                return new FixSessionImpl.AppMessageReceiver() {
+                return new AppMessageReceiver() {
                     @Override
                     public void messages(FixMessageValue fixMessageValue) {
                         if (fixMessageValue.message() != null) {
@@ -361,12 +339,12 @@ class FixServerTest {
         }
 
         @Override
-        public FixSessionImpl.UserLogonSession create(Shutdown shutdown) {
+        public UserLogonSession create(Shutdown shutdown) {
             return new TestUserServerLogonSession(shutdown, new PricerImpl(scheduledExecutorService));
         }
     }
 
-    private static class TestUserServerLogonSession implements FixSessionImpl.UserLogonSession {
+    private static class TestUserServerLogonSession implements UserLogonSession {
         private final Shutdown shutdown;
         private final Pricer pricer;
 
@@ -376,17 +354,17 @@ class FixServerTest {
         }
 
         @Override
-        public FixSessionImpl.UserSession initiator() {
+        public UserSession initiator() {
             throw new RuntimeException("Pricer side is acceptor");
         }
 
         @Override
-        public FixSessionImpl.UserSession acceptor(String senderCompID, String targetCompID) {
+        public UserSession acceptor(String senderCompID, String targetCompID) {
             // accept connection en inverse sender and target
             return new ServerPricerUserSession(targetCompID, senderCompID);
         }
 
-        private class ServerPricerUserSession implements FixSessionImpl.UserSession {
+        private class ServerPricerUserSession implements UserSession {
 
             private final String senderCompID;
             private final String targetCompID;
@@ -396,8 +374,8 @@ class FixServerTest {
                 this.targetCompID = targetCompID;
             }
 
-            public FixSessionImpl.AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
-                return new FixSessionImpl.AppMessageReceiver() {
+            public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
+                return new AppMessageReceiver() {
                     @Override
                     public void messages(FixMessageValue fixMessageValue) {
                         final Glob message = fixMessageValue.message();

@@ -99,59 +99,6 @@ public class FixSessionImpl implements Runnable {
                 shutdown();
             }, 1, TimeUnit.SECONDS);
             return closedCompletable;
-//            final FixMessageValue read = reader.read();
-//            log.info(ident + ": logout : new message " + read);
-//            final Glob message = read.message();
-//            final GlobType type = message.getType();
-//            if (type == LogoutType.TYPE) {
-//                log.info(ident + ":Client logout confirm");
-//                shutdown();
-//                return;
-//            } else if (type == HeartbeatType.TYPE) {
-//                final String s = message.get(HeartbeatType.testReqID);
-//                if (expectedHeartbeat != null) {
-//                    if (expectedHeartbeat.equals(s)) {
-//                        expectedHeartbeat = null;
-//                    } else {
-//                        log.warn(ident + ":Unexpected heartbeat: " + s);
-//                    }
-//                }
-//            } else if (type == TestRequestType.TYPE) {
-//                final String testReqId = message.get(TestRequestType.testReqID);
-//                writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null);
-//            } else {
-//                log.warn(ident + ":Ignored message type: {}", read);
-//            }
-//        }
-    }
-
-    public interface UserLogonSession {
-        UserSession initiator();
-
-        UserSession acceptor(String senderCompID, String targetCompID);
-    }
-
-    public interface UserSession {
-
-        Glob getHeader();
-
-        Glob getLogon();
-
-        AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter);
-
-        CompletableFuture<Void> logout();
-    }
-
-    public interface AppMessageReceiver {
-        void messages(FixMessageValue fixMessageValue);
-    }
-
-    public interface ClientSeqMsgId {
-        int next(int expectedNext);
-
-        int current();
-
-        int reset(int lastReceived);
     }
 
     @Override
