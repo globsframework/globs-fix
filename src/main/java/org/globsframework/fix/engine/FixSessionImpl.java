@@ -44,7 +44,15 @@ public class FixSessionImpl implements Runnable {
     private int expectedNext;
     private volatile boolean closed;
     private final Option option;
+    private List<Runnable> onClose = new ArrayList<>();
     private CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
+
+    synchronized public void registerOnClosed(Runnable runnable) {
+        if (closed) {
+            runnable.run();
+        }
+        onClose.add(runnable);
+    }
 
     public record Option(boolean resetSeqNumToOneOnGap) {
         public static Option op(boolean resetSeqNumToOneOnGap) {
@@ -87,6 +95,18 @@ public class FixSessionImpl implements Runnable {
         ident = header.get(headerDesc.senderCompIDField()) + "-" +
                 header.get(headerDesc.targetCompIDField());
         log.info(ident + " new session expected seq " + expectedNext);
+        closedCompletable.whenComplete((aBoolean, throwable) -> {
+            synchronized (FixSessionImpl.this) {
+                for (Runnable runnable : onClose) {
+                    try {
+                        runnable.run();
+                    } catch (Exception e) {
+                        log.warn("Error thrown on close " + e.getMessage(), e);
+                    }
+                }
+                onClose.clear();
+            }
+        });
     }
 
     public CompletableFuture<Boolean> logout() {
@@ -102,11 +122,11 @@ public class FixSessionImpl implements Runnable {
                 LogoutType.create("Logout requested."), null, false);
 
 //        while (true) {
-            // add async call to close in case no response are sent.
-            scheduledExecutorService.schedule(() -> {
-                shutdown();
-            }, 1, TimeUnit.SECONDS);
-            return closedCompletable;
+        // add async call to close in case no response are sent.
+        scheduledExecutorService.schedule(() -> {
+            shutdown();
+        }, 1, TimeUnit.SECONDS);
+        return closedCompletable;
     }
 
     @Override
@@ -134,6 +154,7 @@ public class FixSessionImpl implements Runnable {
                         messages.add(message);
                     });
                     if (seqNum != -1) {
+                        log.info(ident + " reset remote seq num to " + seqNum);
                         expectedNext = clientSeqMsgId.reset(seqNum);
                     }
                     sentLogon();
@@ -199,9 +220,8 @@ public class FixSessionImpl implements Runnable {
             } else if (seq < expectedNext) {
                 if (!read.header().isTrue(headerDesc.isDup())) {
                     throw new IncoherentStateException("Sequence number received " + seq + " is lower than expected: " + expectedNext
-                    + " for " + read);
-                }
-                else {
+                                                       + " for " + read);
+                } else {
                     log.info(ident + " [ logon] duplicate message ignored.");
                 }
             } else {
@@ -214,8 +234,7 @@ public class FixSessionImpl implements Runnable {
                         for (FixMessageValue message : messages) {
                             treatMsgAndReset(message);
                         }
-                    }
-                    else {
+                    } else {
                         expectedNext = clientSeqMsgId.next(expectedNext);
                     }
                     return;
@@ -226,6 +245,7 @@ public class FixSessionImpl implements Runnable {
                     } else {
                         messages.add(read);
                     }
+                    expectedNext = clientSeqMsgId.next(expectedNext);
                 }
             }
         }
@@ -333,7 +353,16 @@ public class FixSessionImpl implements Runnable {
         int nextWantedSeqNum = firstUnknownSeqNum;
         int expectedNext = firstKnownReceivedSeqNum + 1;
         List<FixMessageValue> nextMessages = new ArrayList<>();
-        nextMessages.add(lastMessage);
+        if (FixAdminModel.TYPES.contains(lastMessage.message().getType())) {
+            if (lastMessage.message().getType() == LogonType.TYPE) {
+                nextMessages.add(lastMessage);
+            } else{
+                manageAdminMessage(lastMessage.message().getType(), lastMessage); //on traite
+            }
+        }
+        else {
+            nextMessages.add(lastMessage);
+        }
         FixMessageValue read = reader.read();
         log.info(ident + " [GAP] New message " + read);
         while (true) {
@@ -355,7 +384,6 @@ public class FixSessionImpl implements Runnable {
                         final int tmp = message.get(SequenceResetType.newSeqNo);
                         nextWantedSeqNum = Math.max(tmp, nextWantedSeqNum);
                         if (nextWantedSeqNum >= firstKnownReceivedSeqNum - 1) {
-                            nextMessages.add(read);
                             for (FixMessageValue nextMessage : nextMessages) {
                                 publish.publish(nextMessage, false);
                             }
@@ -363,6 +391,7 @@ public class FixSessionImpl implements Runnable {
                         }
                     } else {
                         final int tmp = message.get(SequenceResetType.newSeqNo);
+                        log.info(ident + " hard reset to " + tmp);
                         for (FixMessageValue nextMessage : nextMessages) {
                             publish.publish(nextMessage, false);
                         }
@@ -373,9 +402,15 @@ public class FixSessionImpl implements Runnable {
                         return tmp - 1;
                     }
                 } else if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                    manageAdminMessage(read.message().getType(), read); //on traite
+                    if (read.message().getType() == LogonType.TYPE) {
+                        nextMessages.add(read);
+                    } else{
+                        manageAdminMessage(read.message().getType(), read); //on traite
+                    }
                 }
-                nextMessages.add(read);
+                else {
+                    nextMessages.add(read);
+                }
                 expectedNext++;
             } else if (seq > expectedNext) {
                 final String msg = ident + " [GAP]  gap during refill, expecting " + expectedNext + " but got " + seq;
@@ -392,7 +427,14 @@ public class FixSessionImpl implements Runnable {
                     log.error(msg);
                     throw new GapInRefillException(msg);
                 }
-                publish.publish(read, true);
+                // manage admin message ??
+                log.info(ident + " [GAP] past message");
+                if (FixAdminModel.TYPES.contains(read.message().getType())) {
+                    manageAdminMessage(read.message().getType(), read); //on traite
+                }
+                else {
+                    publish.publish(read, true);
+                }
                 nextWantedSeqNum++;
             }
             read = reader.read();
@@ -461,10 +503,10 @@ public class FixSessionImpl implements Runnable {
         }
         final Integer beginSeq = message.message().get(ResendRequestType.beginSeqNo);
         final int endSeq = message.message().get(ResendRequestType.endSeqNo, 0);
-        final FixMessageRepository.FixMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
+        final FixMessageRepository.FixRecoveredMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
         if (data != null && data.length > 0) {
             int gapfill = -1;
-            for (FixMessageRepository.FixMessage d : data) {
+            for (FixMessageRepository.FixRecoveredMessage d : data) {
                 if (FixAdminModel.TYPES.contains(d.message().getType())) {
                     if (gapfill == -1) {
                         gapfill = d.header().get(headerDesc.seqNumField());
@@ -488,8 +530,7 @@ public class FixSessionImpl implements Runnable {
                         null, false); // send GapFill for trailing admin messages
             }
         } else {
-            int seq = message.header().getNotNull(headerDesc.seqNumField());
-            final int newSeqNo = endSeq == 0 ? seq : endSeq;
+            final int newSeqNo = endSeq;
             log.info(ident + " [resend] reset to end " + (newSeqNo + 1));
             writer.write(userSession.getHeader().duplicate(),
                     SequenceResetType.create(true, newSeqNo + 1), null, false);

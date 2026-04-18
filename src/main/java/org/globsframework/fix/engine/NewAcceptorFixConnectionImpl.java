@@ -21,6 +21,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
     private final SerializerProvider serializerProvider;
     private final FixInfoProvider fixInfoProvider;
     private final UserLogonSessionFactory serverUserLogonSessionFactory;
+    private volatile boolean isShutdown;
 
 
     public NewAcceptorFixConnectionImpl(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
@@ -93,33 +94,20 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                     dataAdapt.clientSeqMsgId(),
                     dataAdapt.getCachedData(), headerDesc, shutdown, false,
                     FixSessionImpl.Option.op(false));
-            logoutCompletableFuture.complete(fixSession::logout);
+            logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
+                @Override
+                public void registerOnClosed(Runnable runnable) {
+                    fixSession.registerOnClosed(runnable);
+                }
+
+                @Override
+                public CompletableFuture<Boolean> close() {
+                    return fixSession.logout();
+                }
+            });
             executorService.execute(fixSession);
         });
         return logoutCompletableFuture;
     }
 
-    static class NoCacheDataAdapt implements FixInfoProvider.DataAdapt {
-        private final MsgSeqProvider msgSeqProvider = new BasicMsgSeqProvider();
-        private final ClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
-
-        @Override
-        public FixWriter createWriter(Publish publish, FixWriterBuilder writerBuilder) {
-            return writerBuilder.createWriter(publish, msgSeqProvider);
-        }
-
-        public MsgSeqProvider getMsgSeqProvider() {
-            return msgSeqProvider;
-        }
-
-        @Override
-        public FixMessageRepository getCachedData() {
-            return NoFixMessageRepository.INSTANCE;
-        }
-
-        @Override
-        public ClientSeqMsgId clientSeqMsgId() {
-            return inMemoryClientSeqMsgId;
-        }
-    }
 }

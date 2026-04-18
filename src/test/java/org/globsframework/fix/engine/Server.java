@@ -30,14 +30,14 @@ public class Server {
         final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
-        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+        final SingleSerializerProvider serializerProvider = new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
-                                (String senderCompID, String targetCompID) -> new NewAcceptorFixConnectionImpl.NoCacheDataAdapt(),
+                                (String senderCompID, String targetCompID) -> new NoCacheDataAdapt(),
                                 new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 5456, new FixConnectionFactory(acceptorFixConnection, new FixServerTest.LoggerPublish()));
 

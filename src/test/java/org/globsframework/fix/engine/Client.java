@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -33,14 +32,14 @@ public class Client {
 
         final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
 
-        final DefaultSerializerProvider serializerProvider = new DefaultSerializerProvider(
+        final SingleSerializerProvider serializerProvider = new SingleSerializerProvider(
                 DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
                 SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
                 HeaderType.getHeaderDesc());
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt noCacheDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
+        final NoCacheDataAdapt noCacheDataAdapt = new NoCacheDataAdapt();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,

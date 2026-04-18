@@ -23,6 +23,8 @@ public class FixConnectionFactory implements OnNewConnection {
 
 
     public interface FixLogout {
+        void registerOnClosed(Runnable runnable);
+
         CompletableFuture<Boolean> close();
     }
 

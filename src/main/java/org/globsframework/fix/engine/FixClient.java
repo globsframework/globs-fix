@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class FixClient {
     private final String host;
@@ -18,12 +21,12 @@ public class FixClient {
     }
 
     public void connect() throws IOException {
-        final Socket socket = new Socket();
+        Socket socket = new Socket();
         socket.connect(new InetSocketAddress(host, port));
         logoutCompletableFuture = onNewConnection.newConnection(socket);
     }
 
-    public CompletableFuture<Boolean> disconnect(){
-        return logoutCompletableFuture.join().close();
+    public CompletableFuture<Boolean> disconnect() throws ExecutionException, InterruptedException, TimeoutException {
+        return logoutCompletableFuture.get(2, TimeUnit.SECONDS).close();
     }
 }

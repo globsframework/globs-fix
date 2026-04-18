@@ -16,6 +16,8 @@ import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
 import org.globsframework.fix.serializer.*;
 import org.globsframework.json.GSonUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -41,7 +43,9 @@ class FixServerTest {
     private HeaderDesc headerDesc;
     private ExecutorService executorService;
     private ScheduledExecutorService scheduledExecutorService;
-    private DefaultSerializerProvider serializerProvider;
+    private SingleSerializerProvider serializerProvider;
+    private FixServer fixServer;
+    private FixClient fixClient;
 
 
     @BeforeEach
@@ -59,16 +63,26 @@ class FixServerTest {
         executorService = Executors.newCachedThreadPool();
         scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 //        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
-        serializerProvider = new DefaultSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+        serializerProvider = new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+    }
+
+    @AfterEach
+    void tearDown() throws ExecutionException, InterruptedException, TimeoutException {
+//        if (fixClient != null) {
+//            fixClient.disconnect();
+//        }
+//        if (fixServer != null) {
+//            fixServer.shutdown();
+//        }
     }
 
     @Test
     void clientServer() throws IOException, ExecutionException, InterruptedException, TimeoutException {
 
-        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt acceptorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
+        final NoCacheDataAdapt acceptorDataAdapt = new NoCacheDataAdapt();
         ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
 
-        final FixServer fixServer = createFixServer(acceptorDataAdapt);
+        fixServer = createFixServer(acceptorDataAdapt);
 
         executorService.submit(fixServer::processConnections);
 
@@ -78,10 +92,10 @@ class FixServerTest {
         final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
             testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
         });
-        final NewAcceptorFixConnectionImpl.NoCacheDataAdapt initiatorDataAdapt = new NewAcceptorFixConnectionImpl.NoCacheDataAdapt();
+        final NoCacheDataAdapt initiatorDataAdapt = new NoCacheDataAdapt();
         ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
 
-        final FixClient fixClient = createFixClient(port, userLogonSessionFactory, initiatorDataAdapt);
+        fixClient = createFixClient(port, userLogonSessionFactory, initiatorDataAdapt);
 
         final PriceListenerImpl priceListener = new PriceListenerImpl();
         {
@@ -92,7 +106,9 @@ class FixServerTest {
 
             priceListener.actualPrices = new CompletableFuture<>();
             testUserClientLogonSession.subscribe("EUR", priceListener);
-            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
 
             fixClient.disconnect().join();
         }
@@ -105,7 +121,9 @@ class FixServerTest {
 
             priceListener.actualPrices = new CompletableFuture<>();
             testUserClientLogonSession.subscribe("EUR", priceListener);
-            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
 
             fixClient.disconnect().join();
         }
@@ -121,7 +139,9 @@ class FixServerTest {
 
             priceListener.actualPrices = new CompletableFuture<>();
             testUserClientLogonSession.subscribe("EUR", priceListener);
-            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
 
             fixClient.disconnect().join();
         }
@@ -137,7 +157,9 @@ class FixServerTest {
 
             priceListener.actualPrices = new CompletableFuture<>();
             testUserClientLogonSession.subscribe("EUR", priceListener);
-            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
 
             fixClient.disconnect().join();
         }
@@ -154,14 +176,74 @@ class FixServerTest {
 
             priceListener.actualPrices = new CompletableFuture<>();
             testUserClientLogonSession.subscribe("EUR", priceListener);
-            System.out.println("Prices: " + priceListener.actualPrices.get(100, TimeUnit.SECONDS));
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
+
+            fixClient.disconnect().join();
+        }
+        fixClient = null;
+    }
+
+    @Test
+    void testWithSave() throws Exception {
+
+        final FixInfoProvider.DataAdapt acceptorDataAdapt = new InMemoryCacheDataAdapt(10, headerDesc.seqNumField());
+        ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
+
+        fixServer = createFixServer(acceptorDataAdapt);
+
+        executorService.submit(fixServer::processConnections);
+
+        final int port = fixServer.getPort();
+
+        Ref<CompletableFuture<TestUserClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
+            testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
+        });
+        final NoCacheDataAdapt initiatorDataAdapt = new NoCacheDataAdapt();
+        ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
+
+        fixClient = createFixClient(port, userLogonSessionFactory, initiatorDataAdapt);
+
+        final PriceListenerImpl priceListener = new PriceListenerImpl();
+        {
+            testUserClientLogonSessionRef.set(new CompletableFuture<>());
+            fixClient.connect();
+
+            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+
+            priceListener.actualPrices = new CompletableFuture<>();
+            testUserClientLogonSession.subscribe("EUR", priceListener);
+            final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
+            System.out.println("Prices: " + list);
+            Assertions.assertEquals(3, list.size());
 
             fixClient.disconnect().join();
         }
 
+        serverSeqMsgId.reset(serverSeqMsgId.current() - 2);
+        priceListener.actualPrices = new CompletableFuture<>();
+        {
+            testUserClientLogonSessionRef.set(new CompletableFuture<>());
+            fixClient.connect();
+
+            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            Assertions.assertEquals(3, testUserClientLogonSession.checkReceived(3));
+            priceListener.actualPrices = new CompletableFuture<>();
+            testUserClientLogonSession.subscribe("EUR", priceListener);
+            {
+                final List<String> list = priceListener.actualPrices.get(1000, TimeUnit.SECONDS);
+                System.out.println("Prices: " + list);
+                Assertions.assertEquals(3, list.size());
+            }
+
+            fixClient.disconnect().join();
+        }
+        fixClient = null;
     }
 
-    private FixServer createFixServer(NewAcceptorFixConnectionImpl.NoCacheDataAdapt acceptorDataAdapt) throws IOException {
+    private FixServer createFixServer(FixInfoProvider.DataAdapt acceptorDataAdapt) throws IOException {
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
@@ -172,7 +254,7 @@ class FixServerTest {
         return new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
     }
 
-    private FixClient createFixClient(int port, ClientUserLogonSessionFactory userLogonSessionFactory, NewAcceptorFixConnectionImpl.NoCacheDataAdapt initiatorDataAdapt) {
+    private FixClient createFixClient(int port, ClientUserLogonSessionFactory userLogonSessionFactory, NoCacheDataAdapt initiatorDataAdapt) {
         return new FixClient("localhost", port,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
@@ -236,11 +318,13 @@ class FixServerTest {
         }
     }
 
+
     public static class TestUserClientLogonSession implements UserLogonSession, Connected {
         private final Shutdown shutdown;
         private final String senderCompID;
         private final String targetCompoID;
         private final Map<String, PriceListener> listeners = new HashMap<>();
+        private final List<FixMessageValue> received = new ArrayList<>();
 
         public TestUserClientLogonSession(Shutdown shutdown,
                                           String senderCompID, String targetCompoID) {
@@ -276,6 +360,15 @@ class FixServerTest {
             void priceChanged(String symbol, String bidPx);
         }
 
+        public int checkReceived(int count) throws InterruptedException {
+            synchronized (received) {
+                long end = System.currentTimeMillis() + 1000;
+                while (count < received.size() && end > System.currentTimeMillis()) {
+                    received.wait();
+                }
+            }
+            return count;
+        }
 
         private class ClientUserSession implements UserSession {
             private final Connected connected;
@@ -313,6 +406,10 @@ class FixServerTest {
                 return new AppMessageReceiver() {
                     @Override
                     public void messages(FixMessageValue fixMessageValue) {
+                        synchronized (received) {
+                            received.add(fixMessageValue);
+                            received.notify();
+                        }
                         if (fixMessageValue.message() != null) {
                             final Glob message = fixMessageValue.message();
                             if (message.getType() == QuoteResponseType.TYPE) {

@@ -11,7 +11,7 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
     private final FixWriter writer;
     private int current;
     private boolean full;
-    private FixMessage[] saved; // write can be inverted versus the seqnum allocation.
+    private FixRecoveredMessage[] saved; // write can be inverted versus the seqnum allocation.
     // so the order is not sequential.
     private final IntegerField headerSeqNum;
     private final BooleanField possDupFlag;
@@ -24,7 +24,7 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
                            StringField sendingTime,
                            StringField originSendingTime) {
         this.writer = writer;
-        saved = new FixMessage[maxSize];
+        saved = new FixRecoveredMessage[maxSize];
         this.headerSeqNum = headerSeqNum;
         this.possDupFlag = possDupFlag;
         this.sendingTime = sendingTime;
@@ -38,19 +38,19 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
         if (header.isTrue(possDupFlag)) {
             return;
         }
-        final FixMessage fixMessage = new FixMessage(header, message, trailer);
+        final FixRecoveredMessage fixRecoveredMessage = new FixRecoveredMessage(header, message, trailer);
         synchronized (this) {
             current++;
             if (current >= saved.length) {
                 current = 0;
                 full = true;
             }
-            saved[current] = fixMessage;
+            saved[current] = fixRecoveredMessage;
         }
     }
 
     @Override
-    public FixMessage[] get(int fromSeqNum, int toSeqNum) {
+    public FixRecoveredMessage[] get(int fromSeqNum, int toSeqNum) {
         final int initialCapacity;
         if (toSeqNum == 0) {
             initialCapacity = saved.length;
@@ -61,13 +61,13 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
         if (initialCapacity > saved.length) {
             return null;
         }
-        FixMessage[] result = new FixMessage[initialCapacity];
+        FixRecoveredMessage[] result = new FixRecoveredMessage[initialCapacity];
         synchronized (this) {
             for (int i = 0; i < (full ? saved.length : current); i++) {
-                FixMessage dd = saved[i];
+                FixRecoveredMessage dd = saved[i];
                 final int seq = dd.header().get(headerSeqNum);
                 if (seq >= fromSeqNum && seq <= toSeqNum) {
-                    result[seq - fromSeqNum] = new FixMessage(
+                    result[seq - fromSeqNum] = new FixRecoveredMessage(
                             dd.header()
                                     .duplicate()
                                     .set(possDupFlag, true)
@@ -77,7 +77,7 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
                 }
             }
         }
-        for (FixMessage d : result) {
+        for (FixRecoveredMessage d : result) {
             if (d == null) {
                 return null;
             }

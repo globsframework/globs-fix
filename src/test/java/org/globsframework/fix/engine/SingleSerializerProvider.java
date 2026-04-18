@@ -3,12 +3,12 @@ package org.globsframework.fix.engine;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 
-class DefaultSerializerProvider implements SerializerProvider {
+class SingleSerializerProvider implements SerializerProvider {
     private final DeserializerFixReaderBuilder deserializerFixReaderBuilder;
     private final SerializerFixWriterBuilder serializerFixWriterBuilder;
     private final HeaderDesc headerDesc;
 
-    public DefaultSerializerProvider(DeserializerFixReaderBuilder deserializerFixReaderBuilder, SerializerFixWriterBuilder serializerFixWriterBuilder, HeaderDesc headerDesc) {
+    public SingleSerializerProvider(DeserializerFixReaderBuilder deserializerFixReaderBuilder, SerializerFixWriterBuilder serializerFixWriterBuilder, HeaderDesc headerDesc) {
         this.deserializerFixReaderBuilder = deserializerFixReaderBuilder;
         this.serializerFixWriterBuilder = serializerFixWriterBuilder;
         this.headerDesc = headerDesc;

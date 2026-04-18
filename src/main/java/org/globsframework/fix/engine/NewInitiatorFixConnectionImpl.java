@@ -49,7 +49,17 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
                 cachedData.clientSeqMsgId(),
                 cachedData.getCachedData(), headerDesc, shutdown, true, FixSessionImpl.Option.op(false));
         executorService.execute(fixSession);
-        logoutCompletableFuture.complete(fixSession::logout);
+        logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
+            @Override
+            public void registerOnClosed(Runnable runnable) {
+                fixSession.registerOnClosed(runnable);
+            }
+
+            @Override
+            public CompletableFuture<Boolean> close() {
+                return fixSession.logout();
+            }
+        });
         return logoutCompletableFuture;
     }
 }
