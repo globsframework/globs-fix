@@ -1,6 +1,7 @@
 package org.globsframework.fix.engine;
 
 import org.globsframework.core.model.Glob;
+import org.globsframework.fix.Utils;
 import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.FixReader;
 import org.globsframework.fix.serializer.FixWriter;
@@ -44,11 +45,11 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
         final FixWriter writer = cachedData.createWriter(publish, serializerProvider.getWriter(senderCompID, targetCompID));
         final FixReader reader = serializerProvider.getReader(senderCompID, targetCompID).createReader(byteReader);
 
-        final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
+        final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, writer,
                 userSession,
                 cachedData.clientSeqMsgId(),
                 cachedData.getCachedData(), headerDesc, shutdown, true, FixSessionImpl.Option.op(false));
-        executorService.execute(FixSessionImpl.loopRead(fixSession, reader));
+        executorService.execute(Utils.loopRead(fixSession, reader));
         logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
             @Override
             public void registerOnClosed(Runnable runnable) {

@@ -1,0 +1,185 @@
+package org.globsframework.fix.engine;
+
+import org.globsframework.core.metamodel.GlobModel;
+import org.globsframework.core.metamodel.impl.DefaultGlobModel;
+import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
+import org.globsframework.fix.HeaderType;
+import org.globsframework.fix.TrailerType;
+import org.globsframework.fix.deserializer.*;
+import org.globsframework.fix.dictionary.FixModel;
+import org.globsframework.fix.dictionary.admin.HeartbeatType;
+import org.globsframework.fix.dictionary.admin.LogonType;
+import org.globsframework.fix.dictionary.admin.LogoutType;
+import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
+import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
+import org.globsframework.fix.fix44.app.QuoteRequestType;
+import org.globsframework.fix.serializer.FixWriter;
+import org.globsframework.fix.serializer.Publish;
+import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.*;
+
+class FixSessionInitiatorTest {
+    private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+    private FixModel fixModel;
+    private GlobModel globModel;
+    private SerializerFixWriterBuilder fixWriterBuilder;
+    private FixReaderBuilder fixReaderBuilder;
+    private FixReader fixReader;
+    private FixSessionImpl fixSession;
+    private TestUserSession userSession;
+    private CompletableByteReader completableByteReader;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        fixModel = ReadFixDictionary.parse("fix44", () ->
+                new InputStreamReader(getClass().getClassLoader().getResourceAsStream("FIX44.xml"),
+                        StandardCharsets.UTF_8), new FieldFactoryImpl());
+
+        globModel = new DefaultGlobModel(HeartbeatType.TYPE, LogonType.TYPE, QuoteRequestType.TYPE);
+        fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+
+        fixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+        completableByteReader = new CompletableByteReader();
+        fixReader = fixReaderBuilder.createReader(completableByteReader);
+
+        final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {
+            @Override
+            public void publish(byte[] data, int offset, int length) {
+                completableByteReader.getNext()
+                        .complete(Arrays.copyOfRange(data, offset, offset + length));
+            }
+        }, new BasicMsgSeqProvider());
+
+        userSession = new TestUserSession();
+        fixSession = new FixSessionImpl(executorService, writer, userSession, new InMemoryClientSeqMsgId(), new NoFixMessageRepository(),
+                HeaderType.getHeaderDesc(), () -> {
+        },
+                true, new FixSessionImpl.Option(false, 10, 3));
+    }
+
+    @Test
+    void nominalLogon() throws Exception {
+        final FixMessageValue read = fixReader.read();
+        Assertions.assertEquals(LogonType.TYPE, read.message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.TYPE.instantiate(), null));
+        final FixMessageValue message = userSession.getMessage();
+        Assertions.assertEquals(QuoteRequestType.TYPE, message.message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(3), LogoutType.create("Bye"), null));
+        final FixMessageValue bye = fixReader.read();
+        Assertions.assertEquals(LogoutType.TYPE, bye.message().getType());
+        Assertions.assertEquals("Requested", bye.message().get(LogoutType.text));
+    }
+
+
+
+
+
+    private MutableGlob getNextHeader(int seqNum) {
+        return HeaderType.create("AF", "BNP")
+                .set(HeaderType.msgSeqNum, seqNum);
+    }
+
+    private static class TestUserSession implements UserSession, AppMessageReceiver {
+        CompletableFuture<Boolean> connected = new CompletableFuture<>();
+        List<FixMessageValue> received = new ArrayList<>();
+        @Override
+        public void logonFail() {
+        }
+
+        @Override
+        public Glob getHeader() {
+            return HeaderType.create("BNP", "AF");
+        }
+
+        @Override
+        public Glob getLogon() {
+            return LogonType.create(10);
+        }
+
+        @Override
+        public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
+            connected.complete(true);
+            return this;
+        }
+
+        @Override
+        public CompletableFuture<Void> logout() {
+            return new CompletableFuture<>();
+        }
+
+        @Override
+        public void messages(FixMessageValue fixMessageValue) {
+            synchronized (this) {
+                received.add(fixMessageValue);
+                notify();
+            }
+        }
+
+        public FixMessageValue getMessage() throws InterruptedException {
+            synchronized (this) {
+                if (received.isEmpty()) {
+                    this.wait(1000);
+                }
+                return received.removeFirst();
+            }
+        }
+    }
+
+    private static class CompletableByteReader implements ByteReader {
+        byte[] current;
+        int readUntil;
+        List<CompletableFuture<byte[]>> pending = new ArrayList<>();
+
+        public CompletableFuture<byte[]> getNext() {
+            synchronized (this) {
+                final CompletableFuture<byte[]> e = new CompletableFuture<>();
+                pending.add(e);
+                this.notify();
+                return e;
+            }
+        }
+
+        @Override
+        public int read(byte[] buf, int offset, int len) {
+            if (current == null) {
+                try {
+                    synchronized (this) {
+                        if (pending.isEmpty()) {
+                            this.wait(10000);
+                        }
+                        final CompletableFuture<byte[]> first = pending.removeFirst(); // will throw on timeout
+                        current = first.get(10, TimeUnit.SECONDS);
+                        readUntil = 0;
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+
+            }
+            final int available = current.length - readUntil;
+            if (len >= available) {
+                System.arraycopy(current, readUntil, buf, offset, available);
+                current = null;
+                readUntil = 0;
+                return available;
+            } else {
+                System.arraycopy(current, readUntil, buf, offset, len);
+                readUntil += len;
+                return len;
+            }
+        }
+    }
+}

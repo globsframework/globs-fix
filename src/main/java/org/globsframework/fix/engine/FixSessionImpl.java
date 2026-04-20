@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.deserializer.FixMessageValue;
-import org.globsframework.fix.deserializer.FixReader;
 import org.globsframework.fix.dictionary.admin.*;
 import org.globsframework.fix.serializer.FixWriter;
 import org.slf4j.Logger;
@@ -57,7 +56,7 @@ public class FixSessionImpl implements FixMessageListener {
         }
     }
 
-    public FixSessionImpl(ScheduledExecutorService scheduledExecutorService, FixReader fixReader, FixWriter fixWriter,
+    public FixSessionImpl(ScheduledExecutorService scheduledExecutorService, FixWriter fixWriter,
                           UserSession userSession,
                           ClientSeqMsgId clientSeqMsgId,
                           FixMessageRepository fixMessageRepository, // intercept the fixWriter call to update, if needed, the data for replay.
@@ -101,19 +100,6 @@ public class FixSessionImpl implements FixMessageListener {
         } else {
             sessionState = new AcceptorSessionState();
         }
-    }
-
-    public static Runnable loopRead(FixMessageListener fixMessageListener, FixReader fixReader) {
-        return () -> {
-            try {
-                while (true) {
-                    final FixMessageValue read = fixReader.read();
-                    fixMessageListener.newMessage(read);
-                }
-            } catch (Exception e) {
-                log.error("End " + e.getMessage(), e);
-            }
-        };
     }
 
     @Override
@@ -176,6 +162,7 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
             consumeSeqNum();
+            sendLogout("Requested");
             shutdown();
             return new LogoutSessionState();
         }
@@ -264,6 +251,10 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         abstract public SessionState gapState(int seqNum);
+    }
+
+    private void sendLogout(String msg) {
+        writer.write(userSession.getHeader().duplicate(), LogoutType.create(msg), null, false);
     }
 
     private void sendReject(int seqNum, String msgType, String msg) {
@@ -946,25 +937,4 @@ public class FixSessionImpl implements FixMessageListener {
             writer.write(header, message, trailer, false);
         }
     }
-
-    static class LogoutException extends RuntimeException {
-        public LogoutException(String message) {
-            super(message);
-        }
-    }
-
-    static class GapInRefillException extends RuntimeException {
-
-        public GapInRefillException(String msg) {
-            super(msg);
-        }
-    }
-
-    static class IncoherentStateException extends RuntimeException {
-
-        public IncoherentStateException(String message) {
-            super(message);
-        }
-    }
-
 }

@@ -1,7 +1,6 @@
 package org.globsframework.fix.engine;
 
 import org.globsframework.fix.Utils;
-import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
 import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixReader;
@@ -89,7 +88,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
 
             FixWriter writer = dataAdapt.createWriter(publish, writerBuilder);
             final UserLogonSession userLogonSession = serverUserLogonSessionFactory.create(shutdown);
-            final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, reader, writer,
+            final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, writer,
                     userLogonSession.acceptor(senderCompID, targetCompID),
                     dataAdapt.clientSeqMsgId(),
                     dataAdapt.getCachedData(), headerDesc, shutdown, false,
@@ -105,7 +104,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                     return fixSession.logout();
                 }
             });
-            executorService.execute(FixSessionImpl.loopRead(fixSession, reader));
+            executorService.execute(Utils.loopRead(fixSession, reader));
         });
         return logoutCompletableFuture;
     }

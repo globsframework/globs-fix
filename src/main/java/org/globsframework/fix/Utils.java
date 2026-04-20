@@ -1,11 +1,18 @@
 package org.globsframework.fix;
 
+import org.globsframework.fix.deserializer.FixMessageValue;
+import org.globsframework.fix.deserializer.FixReader;
+import org.globsframework.fix.engine.FixMessageListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 public class Utils {
     public static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS");
+    private static final Logger log = LoggerFactory.getLogger(Utils.class);
 
     public static String toDate(ZonedDateTime dateTime) {
         return dateTime.format(FORMATTER);
@@ -150,5 +157,18 @@ public class Utils {
             value = value * 10 + buffer[i] - '0';
         }
         return value;
+    }
+
+    public static Runnable loopRead(FixMessageListener fixMessageListener, FixReader fixReader) {
+        return () -> {
+            try {
+                while (true) {
+                    final FixMessageValue read = fixReader.read();
+                    fixMessageListener.newMessage(read);
+                }
+            } catch (Exception e) {
+                log.error("End " + e.getMessage(), e);
+            }
+        };
     }
 }
