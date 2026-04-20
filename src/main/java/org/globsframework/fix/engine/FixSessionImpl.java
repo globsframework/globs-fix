@@ -3,7 +3,6 @@ package org.globsframework.fix.engine;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.utils.Ref;
 import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.deserializer.FixReader;
 import org.globsframework.fix.dictionary.admin.*;
@@ -11,25 +10,22 @@ import org.globsframework.fix.serializer.FixWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class FixSessionImpl implements Runnable {
+public class FixSessionImpl implements FixMessageListener {
     private static final Logger log = LoggerFactory.getLogger(FixSessionImpl.class);
     public static final int DELAY_BETWEEN_CONNECT_AND_LOGON = 10;
     private final String ident;
     private final ScheduledExecutorService scheduledExecutorService;
-    private final FixReader reader;
     private final FixWriter writer;
     private final FixWriter appWriter;
     private final FixMessageRepository fixMessageRepository;
     private final HeaderDesc headerDesc;
-    private final boolean isInitiator;
     private final Shutdown shutdown;
     private long heartbeatInMSIn;
     private volatile long lastMessageReceivedTimeStampInMS = -1;
@@ -46,6 +42,7 @@ public class FixSessionImpl implements Runnable {
     private final Option option;
     private List<Runnable> onClose = new ArrayList<>();
     private CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
+    private SessionState sessionState;
 
     synchronized public void registerOnClosed(Runnable runnable) {
         if (closed) {
@@ -54,9 +51,9 @@ public class FixSessionImpl implements Runnable {
         onClose.add(runnable);
     }
 
-    public record Option(boolean resetSeqNumToOneOnGap) {
+    public record Option(boolean resetSeqNumToOneOnGap, int delayBeforeResendLogonInS, int maxRetryLogon) {
         public static Option op(boolean resetSeqNumToOneOnGap) {
-            return new Option(resetSeqNumToOneOnGap);
+            return new Option(resetSeqNumToOneOnGap, 1, 3);
         }
     }
 
@@ -68,13 +65,6 @@ public class FixSessionImpl implements Runnable {
                           Shutdown shutdown,
                           boolean isInitiator, Option option) {
         this.scheduledExecutorService = scheduledExecutorService;
-        this.reader = new FixReader() {
-            @Override
-            public FixMessageValue read() {
-                lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
-                return fixReader.read();
-            }
-        };
         this.writer = new FixWriter() {
             @Override
             public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
@@ -86,7 +76,6 @@ public class FixSessionImpl implements Runnable {
         this.userSession = userSession;
         this.fixMessageRepository = fixMessageRepository;
         this.headerDesc = headerDesc;
-        this.isInitiator = isInitiator;
         this.shutdown = shutdown;
         this.clientSeqMsgId = clientSeqMsgId;
         expectedNext = clientSeqMsgId.current() + 1;
@@ -107,7 +96,684 @@ public class FixSessionImpl implements Runnable {
                 onClose.clear();
             }
         });
+        if (isInitiator) {
+            sessionState = new InitiatorSessionState();
+        } else {
+            sessionState = new AcceptorSessionState();
+        }
     }
+
+    public static Runnable loopRead(FixMessageListener fixMessageListener, FixReader fixReader) {
+        return () -> {
+            try {
+                while (true) {
+                    final FixMessageValue read = fixReader.read();
+                    fixMessageListener.newMessage(read);
+                }
+            } catch (Exception e) {
+                log.error("End " + e.getMessage(), e);
+            }
+        };
+    }
+
+    @Override
+    public void newMessage(FixMessageValue fixMessageValue) {
+        lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
+        final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
+        sessionState = sessionState.checkSeqNum(seqNum, fixMessageValue);
+        final Glob message = fixMessageValue.message();
+        final GlobType type = message.getType();
+        if (FixAdminModel.TYPES.contains(type)) {
+            if (type == LogonType.TYPE) {
+                sessionState = sessionState.logon(seqNum, fixMessageValue);
+            } else if (type == LogoutType.TYPE) {
+                sessionState = sessionState.logout(seqNum, fixMessageValue);
+            } else if (type == HeartbeatType.TYPE) {
+                sessionState = sessionState.heartBeat(seqNum, fixMessageValue);
+            } else if (type == ResendRequestType.TYPE) {
+                sessionState = sessionState.resendRequest(seqNum, fixMessageValue);
+            } else if (type == SequenceResetType.TYPE) {
+                sessionState = sessionState.sequenceReset(seqNum, fixMessageValue);
+            } else if (type == RejectType.TYPE) {
+                sessionState = sessionState.rejectedMessage(seqNum, fixMessageValue);
+            } else if (type == TestRequestType.TYPE) {
+                sessionState = sessionState.testRequest(seqNum, fixMessageValue);
+            } else {
+                log.error("Bug : type " + type.getName() + " not managed.");
+            }
+        } else {
+            sessionState = sessionState.appMessage(seqNum, fixMessageValue);
+        }
+    }
+
+    interface SessionState {
+
+        SessionState logon(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState logout(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState appMessage(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue);
+
+        SessionState testRequest(int seqNum, FixMessageValue fixMessageValue);
+    }
+
+    abstract class AbstractSessionState implements SessionState {
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            return this;
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            consumeSeqNum();
+            shutdown();
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum < expectedNext) {
+                if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
+                    log.info(ident + " duplicate messages ignored.");
+                } else {
+                    final String msg = ident + " invalid seq num " + seqNum + " expecting " + expectedNext;
+                    log.error(msg);
+                    sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), msg);
+                }
+            }
+            if (expectedNext != seqNum) {
+               return manageGap(seqNum, fixMessageValue);
+            }
+            return this;
+        }
+
+        SessionState manageGap(int seqNum, FixMessageValue fixMessageValue) {
+            if (expectedNext < seqNum) {
+                if (fixMessageValue.message().getType() == SequenceResetType.TYPE) {
+                    final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+                    if (newSeqNum > expectedNext) {
+                        log.warn(ident + " past sequence reset with future seq : reset seqNum to " + newSeqNum);
+                        expectedNext = clientSeqMsgId.reset(newSeqNum);
+                    } else {
+                        log.warn(ident + " duplicate ignored.");
+                    }
+                } else {
+                    final boolean isDup = fixMessageValue.header().get(headerDesc.isDup());
+                    if (isDup) {
+                        log.warn(ident + " ignore old message.");
+                    } else {
+                        log.error(ident + " received old message.");
+                    }
+                }
+                return this;
+            } else {
+                return gapState(seqNum);
+            }
+        }
+
+        @Override
+        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+            consumeSeqNum();
+            final boolean gapFillFlag = fixMessageValue.message().isTrue(SequenceResetType.gapFillFlag);
+            if (gapFillFlag) {
+                expectedNext = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+            } else {
+                expectedNext = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+            }
+            clientSeqMsgId.reset(expectedNext);
+            return this;
+        }
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return this;
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return this;
+        }
+
+
+        @Override
+        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+            treatHeartBeat(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatReSend(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatTestRequest(fixMessageValue);
+            return this;
+        }
+
+        abstract public SessionState gapState(int seqNum);
+    }
+
+    private void sendReject(int seqNum, String msgType, String msg) {
+        writer.write(userSession.getHeader().duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
+    }
+
+
+    class InitiatorSessionState extends AbstractSessionState {
+        private final ScheduledFuture<?> schedule;
+        private final AtomicBoolean logon = new AtomicBoolean(false);
+        private Set<Integer> logonSendId = new HashSet<>();
+        int logonSendCount = 0;
+
+        public InitiatorSessionState() {
+            final int seqNum = sentLogon();
+            logonSendId.add(seqNum);
+            logonSendCount++;
+            schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+        }
+
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            logon.set(true);
+            schedule.cancel(false);
+            consumeSeqNum();
+            connect(fixMessageValue);
+            return new ConnectedSessionState();
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            consumeSeqNum();
+            shutdown();
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            final int rejectedSeqNum = fixMessageValue.message().get(RejectType.refSeqNum);
+            if (logonSendId.contains(rejectedSeqNum)) {
+                log.warn(ident + " logon was rejected, force logout");
+                shutdown();
+            }
+            return this;
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
+                return this;
+            }
+            throw new RuntimeException("Unexpected app message before logon complete");
+        }
+
+        @Override
+        public synchronized SessionState gapState(int seqNum) {
+            endSelf();
+            return new UnConnectedGapSessionState(logonSendCount, seqNum);
+        }
+
+        private void endSelf() {
+            schedule.cancel(false);
+        }
+
+        synchronized private void retryLogon() {
+            if (schedule.isCancelled()) {
+                return;
+            }
+            if (logon.get()) {
+                return;
+            }
+            if (option.maxRetryLogon == -1 || logonSendCount > option.maxRetryLogon) {
+                shutdown();
+            } else {
+                int seqNum = sentLogon();
+                logonSendId.add(seqNum);
+                logonSendCount++;
+            }
+        }
+    }
+
+    private void connect(FixMessageValue fixMessageValue) {
+        appMessageReceiver = userSession.connected(fixMessageValue, appWriter);
+    }
+
+    private void consumeSeqNum() {
+        expectedNext = clientSeqMsgId.next(expectedNext);
+    }
+
+    private class UnConnectedGapSessionState implements SessionState {
+        private int logonCount;
+        private final ScheduledFuture<?> schedule;
+        protected final int requestSendSeqNum;
+        protected final int firstReceivedSeqNum;
+        protected int nextExpectedFuturSeqNum;
+        protected int nextExpectedPastSeqNum;
+        protected List<FixMessageValue> futureAppMessage = new ArrayList<>();
+        protected List<FixMessageValue> pastAppMessage = new ArrayList<>();
+        protected int firstGapInGap = -1;
+
+        public UnConnectedGapSessionState(int logonCount, int firstReceivedSeqNum) {
+            this.logonCount = logonCount;
+            schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+            this.firstReceivedSeqNum = firstReceivedSeqNum;
+            log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
+            final MutableGlob header = userSession.getHeader().duplicate();
+            writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
+            requestSendSeqNum = header.get(headerDesc.seqNumField());
+            nextExpectedFuturSeqNum = firstReceivedSeqNum + 1;
+        }
+
+        synchronized private void retryLogon() {
+            if (schedule.isCancelled()) {
+                return;
+            }
+            if (option.maxRetryLogon == -1 || logonCount > option.maxRetryLogon) {
+                shutdown();
+            } else {
+                sentLogon();
+                logonCount++;
+            }
+        }
+
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            connect(fixMessageValue);
+            for (FixMessageValue messageValue : pastAppMessage) {
+                appMessageReceiver.messages(messageValue);
+                final int current = messageValue.header().get(headerDesc.seqNumField());
+                expectedNext = clientSeqMsgId.reset(current);
+            }
+            if (nextExpectedPastSeqNum == firstReceivedSeqNum) {
+                for (FixMessageValue messageValue : futureAppMessage) {
+                    appMessageReceiver.messages(messageValue);
+                    final int current = messageValue.header().get(headerDesc.seqNumField());
+                    expectedNext = clientSeqMsgId.reset(current);
+                }
+                expectedNext = clientSeqMsgId.reset(nextExpectedFuturSeqNum - 1);
+                return new ConnectedSessionState();
+            }
+            return new ConnectedGapSessionState(this.nextExpectedFuturSeqNum,
+                    firstReceivedSeqNum, this.nextExpectedPastSeqNum, this.futureAppMessage, this.firstGapInGap);
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            log.info(ident + " logout received");
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+            treatHeartBeat(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatReSend(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatTestRequest(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+            final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+            if (seqNum == nextExpectedFuturSeqNum) {
+                nextExpectedPastSeqNum = newSeqNum;
+            } else if (seqNum == nextExpectedPastSeqNum) {
+                nextExpectedPastSeqNum = newSeqNum;
+            } else {
+                if (newSeqNum > nextExpectedFuturSeqNum) {
+                    nextExpectedFuturSeqNum = newSeqNum;
+                } else if (newSeqNum < firstReceivedSeqNum && newSeqNum > nextExpectedPastSeqNum) {
+                    nextExpectedPastSeqNum = newSeqNum;
+                }
+            }
+            return this;
+        }
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            consume(seqNum);
+            if (requestSendSeqNum == fixMessageValue.message().get(RejectType.refSeqNum)) {
+                log.error(ident + " resend request refused.");
+                //??
+            }
+            return this;
+        }
+
+        void consume(int seqNum) {
+            if (seqNum == nextExpectedFuturSeqNum) {
+                nextExpectedFuturSeqNum++;
+            } else if (seqNum == nextExpectedPastSeqNum) {
+                nextExpectedPastSeqNum++;
+            } else {
+                log.warn(ident + " can not consume " + seqNum);
+            }
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum == nextExpectedFuturSeqNum) {
+                futureAppMessage.add(fixMessageValue);
+                nextExpectedFuturSeqNum++;
+                return this;
+            }
+            if (seqNum == nextExpectedPastSeqNum) {
+                pastAppMessage.add(fixMessageValue);
+                nextExpectedPastSeqNum++;
+            }
+            log.warn(ident + "app message ignored");
+            return this;
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum < nextExpectedPastSeqNum) {
+                log.warn(ident + " unexpected past seqNum " + seqNum);
+            }
+            if (seqNum > nextExpectedFuturSeqNum) {
+                log.warn(ident + " unexpected futur seqNum " + seqNum + " gap in gap");
+                if (firstGapInGap == -1) {
+                    firstGapInGap = seqNum;
+                }
+            }
+            if (seqNum == nextExpectedFuturSeqNum) {
+                return this;
+            }
+            if (seqNum == nextExpectedPastSeqNum) {
+                return this;
+            }
+            log.warn(ident + " gap in gap in past.");
+            return this;
+        }
+    }
+
+    private class ConnectedSessionState extends AbstractSessionState {
+
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            return this;
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            appMessageReceiver.messages(fixMessageValue);
+            consumeSeqNum();
+            return this;
+        }
+
+        @Override
+        public SessionState gapState(int seqNum) {
+            return new ConnectedGapSessionState(seqNum);
+        }
+    }
+
+    private class ConnectedGapSessionState implements SessionState {
+        protected final int requestSendSeqNum;
+        protected final int firstReceivedSeqNum;
+        protected int nextExpectedFuturSeqNum;
+        protected List<FixMessageValue> futureAppMessage = new ArrayList<>();
+        protected int firstGapInGap = -1;
+
+        public ConnectedGapSessionState(int firstReceivedSeqNum) {
+            this.firstReceivedSeqNum = firstReceivedSeqNum;
+            log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
+            final MutableGlob header = userSession.getHeader().duplicate();
+            writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
+            requestSendSeqNum = header.get(headerDesc.seqNumField());
+            nextExpectedFuturSeqNum = firstReceivedSeqNum + 1;
+        }
+
+        public ConnectedGapSessionState(int requestSendSeqNum, int firstReceivedSeqNum, int nextExpectedFuturSeqNum,
+                                        List<FixMessageValue> futureAppMessage, int firstGapInGap) {
+
+            this.requestSendSeqNum = requestSendSeqNum;
+            this.firstReceivedSeqNum = firstReceivedSeqNum;
+            this.nextExpectedFuturSeqNum = nextExpectedFuturSeqNum;
+            this.firstGapInGap = firstGapInGap;
+            this.futureAppMessage.addAll(futureAppMessage);
+        }
+
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            return this;
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            log.info(ident + " logout received");
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+            treatHeartBeat(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatReSend(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+            treatTestRequest(fixMessageValue);
+            return this;
+        }
+
+        @Override
+        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+            final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+            if (seqNum == nextExpectedFuturSeqNum) {
+                nextExpectedFuturSeqNum = newSeqNum;
+            } else if (seqNum == expectedNext) {
+                expectedNext = clientSeqMsgId.reset(newSeqNum);
+            } else {
+                if (newSeqNum > nextExpectedFuturSeqNum) {
+                    expectedNext = firstReceivedSeqNum; // not real update of next expected : updated to force to connected state
+                    nextExpectedFuturSeqNum = newSeqNum;
+                } else if (newSeqNum < firstReceivedSeqNum && newSeqNum > expectedNext) {
+                    expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
+                }
+            }
+            return checkGapComplete();
+        }
+
+        private SessionState checkGapComplete() {
+            if (expectedNext >= firstReceivedSeqNum) {
+                for (FixMessageValue messageValue : futureAppMessage) {
+                    appMessageReceiver.messages(messageValue);
+                    final int current = messageValue.header().get(headerDesc.seqNumField());
+                    expectedNext = clientSeqMsgId.reset(current);
+                }
+                clientSeqMsgId.reset(nextExpectedFuturSeqNum - 1);
+                return new ConnectedSessionState();
+            }
+            return this;
+        }
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            consume(seqNum);
+            if (requestSendSeqNum == fixMessageValue.message().get(RejectType.refSeqNum)) {
+                log.error(ident + " resend request refused.");
+                //??
+            }
+            return this;
+        }
+
+        void consume(int seqNum) {
+            if (seqNum == nextExpectedFuturSeqNum) {
+                nextExpectedFuturSeqNum++;
+            } else if (seqNum == expectedNext) {
+                expectedNext = clientSeqMsgId.next(expectedNext);
+            } else {
+                log.warn(ident + " can not consume " + seqNum);
+            }
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum == nextExpectedFuturSeqNum) {
+                futureAppMessage.add(fixMessageValue);
+                nextExpectedFuturSeqNum++;
+                return this;
+            }
+            if (seqNum == expectedNext) {
+                appMessageReceiver.messages(fixMessageValue);
+                consume(seqNum);
+            }
+            log.warn(ident + "app message ignored");
+            return this;
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum < expectedNext) {
+                log.warn(ident + " unexpected past seqNum " + seqNum);
+            }
+            if (seqNum > nextExpectedFuturSeqNum) {
+                log.warn(ident + " unexpected futur seqNum " + seqNum + " gap in gap");
+                if (firstGapInGap == -1) {
+                    firstGapInGap = seqNum;
+                }
+            }
+            if (seqNum == nextExpectedFuturSeqNum) {
+                return this;
+            }
+            if (seqNum == expectedNext) {
+                return this;
+            }
+            log.warn(ident + " gap in gap in past.");
+            return this;
+        }
+    }
+
+    private class LogoutSessionState extends AbstractSessionState {
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+        @Override
+        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+        @Override
+        public SessionState gapState(int seqNum) {
+            return this;
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            return reject();
+        }
+
+        private SessionState reject() {
+            throw new UnsupportedOperationException("Session is logout, refuse all messages.");
+        }
+    }
+
+    class AcceptorSessionState implements SessionState {
+
+        @Override
+        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            connect(fixMessageValue);
+            if (seqNum != expectedNext) {
+                return new ConnectedGapSessionState(seqNum);
+            } else {
+                consumeSeqNum();
+                return new ConnectedSessionState();
+            }
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        SessionState cancel() {
+            shutdown();
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (fixMessageValue.message().getType() != LogonType.TYPE) {
+                shutdown();
+                return new LogoutSessionState();
+            }
+            return this;
+        }
+
+        @Override
+        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+    }
+
 
     public CompletableFuture<Boolean> logout() {
         final CompletableFuture<Void> logout = userSession.logout();
@@ -129,353 +795,31 @@ public class FixSessionImpl implements Runnable {
         return closedCompletable;
     }
 
-    @Override
-    public void run() {
-        try {
-            if (isInitiator) {
-                sentLogon();
-                treatWaitForLogon();
-            } else {
-                FixMessageValue logon = reader.read();
-                log.info(ident + " : first message " + logon);
-                if (logon.message().getType() != LogonType.TYPE) {
-                    throw new IncoherentStateException("Logon expected but got " + logon.message().getType().getName());
-                }
 
-                managedInHeartBeat(logon);
-
-                int seq = logon.header().get(headerDesc.seqNumField());
-                if (expectedNext > seq) { // not expected to happen ignore?
-                    throw new IncoherentStateException("Unexpected sequence number: " + seq + " expected: " + expectedNext);
-                } else if (expectedNext < seq) {
-                    log.info(ident + " gap detected at connection " + expectedNext + " < " + seq);
-                    List<FixMessageValue> messages = new ArrayList<>();
-                    final int seqNum = requestAndManageGap(expectedNext, seq, logon, (message, past) -> {
-                        messages.add(message);
-                    });
-                    if (seqNum != -1) {
-                        log.info(ident + " reset remote seq num to " + seqNum);
-                        expectedNext = clientSeqMsgId.reset(seqNum);
-                    }
-                    sentLogon();
-                    appMessageReceiver = userSession.connected(logon, appWriter);
-                    for (FixMessageValue message : messages) {
-                        treatMsgAndReset(message);
-                    }
-                } else {
-                    sentLogon();
-                    // last received is logon.
-                    expectedNext = clientSeqMsgId.next(expectedNext);
-                    appMessageReceiver = userSession.connected(logon, appWriter);
-                }
-            }
-        } catch (RuntimeException e) {
-            log.error(ident + " error at init " + e.getMessage(), e);
-            closedCompletable.completeExceptionally(e);
-            return;
-        }
-        loopMessage();
-    }
-
-    private void treatWaitForLogon() {
-        log.info(ident + " [Logon]");
-        List<FixMessageValue> messages = new ArrayList<>();
-        while (true) {
-            FixMessageValue read = reader.read();
-            log.info(ident + " [logon] new message " + read);
-            final int seq = read.header().get(headerDesc.seqNumField());
-            if (seq > expectedNext) {
-                log.info(ident + " [logon] gap detected " + seq + " vs " + expectedNext);
-                Ref<FixMessageValue> logonRef = new Ref<>();
-                List<FixMessageValue> replayMsg = new ArrayList<>();
-                if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                    manageAdminMessage(read.message().getType(), read);
-                }
-                int seqNum = requestAndManageGap(expectedNext, seq, read, (e, past) -> {
-                    if (!past) {
-                        final GlobType type = e.message().getType();
-                        if (type == LogonType.TYPE) {
-                            logonRef.set(e);
-                        } else if (type == LogoutType.TYPE) {
-                            throw new IncoherentStateException("receive logout during logon process");
-                        }
-                    }
-                    replayMsg.add(e);
-                });
-                if (seqNum != -1) {
-                    expectedNext = clientSeqMsgId.reset(seqNum);
-                }
-                if (logonRef.get() != null) {
-                    log.info(ident + " [logon] found logon");
-                    managedInHeartBeat(logonRef.get());
-                    appMessageReceiver = userSession.connected(logonRef.get(), appWriter);
-                    for (FixMessageValue message : messages) {
-                        treatMsgAndReset(message);
-                    }
-                    for (FixMessageValue fixMessageValue : replayMsg) {
-                        treatMsgAndReset(fixMessageValue);
-                    }
-                    return;
-                }
-            } else if (seq < expectedNext) {
-                if (!read.header().isTrue(headerDesc.isDup())) {
-                    throw new IncoherentStateException("Sequence number received " + seq + " is lower than expected: " + expectedNext
-                                                       + " for " + read);
-                } else {
-                    log.info(ident + " [ logon] duplicate message ignored.");
-                }
-            } else {
-                if (read.message().getType() == LogonType.TYPE) {
-                    log.info(ident + ": [logon] new logon message");
-                    managedInHeartBeat(read);
-                    log.info(ident + ": [logon] session connected");
-                    appMessageReceiver = userSession.connected(read, appWriter);
-                    if (!messages.isEmpty()) {
-                        for (FixMessageValue message : messages) {
-                            treatMsgAndReset(message);
-                        }
-                    } else {
-                        expectedNext = clientSeqMsgId.next(expectedNext);
-                    }
-                    return;
-                } else {
-                    log.info(ident + " [logon] new message");
-                    if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                        manageAdminMessage(read.message().getType(), read);
-                    } else {
-                        messages.add(read);
-                    }
-                    expectedNext = clientSeqMsgId.next(expectedNext);
-                }
-            }
-        }
-    }
-
-    private void treatMsgAndReset(FixMessageValue fixMessageValue) {
-        if (FixAdminModel.TYPES.contains(fixMessageValue.message().getType())) {
-            manageAdminMessage(fixMessageValue.message().getType(), fixMessageValue);
-        } else {
-            appMessageReceiver.messages(fixMessageValue);
-        }
-        expectedNext = clientSeqMsgId.reset(fixMessageValue.header().get(headerDesc.seqNumField()));
-    }
-
-
-    private void loopMessage() {
-        log.info(ident + ": start loop message");
-        try {
-            while (true) {
-                final FixMessageValue read = reader.read();
-                log.info(ident + ": New message" + read);
-                treatNextMessage(read);
-            }
-        } catch (LogoutException logoutException) {
-            log.info(ident + ": End of session: logout " + logoutException.getMessage());
-            closedCompletable.complete(true);
-        } catch (GapInRefillException gapInRefillException) {
-            log.error(ident + ": Force logout du to gap in refill detected: " + gapInRefillException.getMessage());
-            logout();
-            closedCompletable.completeExceptionally(gapInRefillException);
-        } catch (IncoherentStateException incoherentStateException) {
-            log.error(ident + ": Incoherent state detected: " + incoherentStateException.getMessage());
-            logout();
-            closedCompletable.completeExceptionally(incoherentStateException);
-        } catch (Exception exception) {
-            log.error(ident + ": Unexpected error in message loop: " + exception.getMessage(), exception);
-            shutdown();
-            closedCompletable.completeExceptionally(exception);
-        } catch (Throwable exception) {
-            log.error(ident + ": Unexpected error in message loop: " + exception.getMessage(), exception);
-            shutdown();
-            closedCompletable.completeExceptionally(exception);
-            throw exception;
-        }
-    }
-
-    private void sentLogon() {
+    private int sentLogon() {
         final MutableGlob logon = userSession.getLogon().duplicate();
         heartbeatInMSOut = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
         logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
-        writer.write(userSession.getHeader().duplicate(), logon, null, false);
+        final MutableGlob header = userSession.getHeader().duplicate();
+        writer.write(header, logon, null, false);
+        return header.get(headerDesc.seqNumField());
     }
 
-    private void treatNextMessage(FixMessageValue read) {
-        final Glob header = read.header();
-        int seq = header.getNotNull(headerDesc.seqNumField());
-        if (seq != expectedNext) {
-            log.warn(ident + ": Gap detected " + seq + " != " + expectedNext);
-            if (seq < expectedNext) {
-                if (!header.isTrue(headerDesc.isDup())) {
-                    final String msg = ident + ": Receive old sequence number " + seq + " ";
-                    log.error(msg);
-                    throw new RuntimeException(msg);
-                } else {
-                    log.warn(ident + ": Duplicate message received, ignoring {} ", read);
-                }
+
+    void treatTestRequest(FixMessageValue fixMessageValue) {
+        final String testReqId = fixMessageValue.message().get(TestRequestType.testReqID);
+        writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null, false);
+    }
+
+    void treatHeartBeat(FixMessageValue fixMessageValue) {
+        final String s = fixMessageValue.message().get(HeartbeatType.testReqID);
+        if (expectedHeartbeat != null) {
+            if (expectedHeartbeat.equals(s)) {
+                expectedHeartbeat = null;
             } else {
-                final int seqNum = requestAndManageGap(expectedNext, seq, read, (fixMessageValue, past) -> {
-                    treatMsgAndReset(fixMessageValue);
-                });
-                if (seqNum != -1) {
-                    expectedNext = clientSeqMsgId.reset(seqNum);
-                }
-            }
-        } else {
-            treatMsg(read);
-        }
-    }
-
-    private void treatMsg(FixMessageValue fixMessageValue) {
-        if (FixAdminModel.TYPES.contains(fixMessageValue.message().getType())) {
-            manageAdminMessage(fixMessageValue.message().getType(), fixMessageValue);
-        } else {
-            appMessageReceiver.messages(fixMessageValue);
-        }
-        if (fixMessageValue.header().get(headerDesc.seqNumField()) != expectedNext) {
-            throw new RuntimeException("BUG: Unexpected sequence number, expected " + expectedNext +
-                                       " but got " + fixMessageValue.header().get(headerDesc.seqNumField()));
-        }
-        expectedNext = clientSeqMsgId.next(expectedNext);
-    }
-
-    interface Publish {
-        void publish(FixMessageValue message, boolean past);
-    }
-
-    private int requestAndManageGap(int firstUnknownSeqNum, int firstKnownReceivedSeqNum,
-                                    FixMessageValue lastMessage, Publish publish) {
-
-        log.info(ident + " [GAP] send ResendRequest");
-        writer.write(userSession.getHeader().duplicate(), ResendRequestType.create(firstUnknownSeqNum, firstKnownReceivedSeqNum - 1), null, false);
-
-        int nextWantedSeqNum = firstUnknownSeqNum;
-        int expectedNext = firstKnownReceivedSeqNum + 1;
-        List<FixMessageValue> nextMessages = new ArrayList<>();
-        if (FixAdminModel.TYPES.contains(lastMessage.message().getType())) {
-            if (lastMessage.message().getType() == LogonType.TYPE) {
-                nextMessages.add(lastMessage);
-            } else{
-                manageAdminMessage(lastMessage.message().getType(), lastMessage); //on traite
-            }
-        }
-        else {
-            nextMessages.add(lastMessage);
-        }
-        FixMessageValue read = reader.read();
-        log.info(ident + " [GAP] New message " + read);
-        while (true) {
-            final Glob header = read.header();
-            int seq = header.get(headerDesc.seqNumField());
-            final Glob message = read.message();
-            if (seq == firstKnownReceivedSeqNum - 1) {
-                log.info(ident + " [GAP] end of gap");
-                publish.publish(read, true);
-                for (FixMessageValue nextMessage : nextMessages) {
-                    publish.publish(nextMessage, false);
-                }
-                return -1;
-            }
-            if (seq == expectedNext) {
-                if (message.getType() == SequenceResetType.TYPE) {
-                    log.info(ident + " sequence reset");
-                    if (message.isTrue(SequenceResetType.gapFillFlag)) {
-                        final int tmp = message.get(SequenceResetType.newSeqNo);
-                        nextWantedSeqNum = Math.max(tmp, nextWantedSeqNum);
-                        if (nextWantedSeqNum >= firstKnownReceivedSeqNum - 1) {
-                            for (FixMessageValue nextMessage : nextMessages) {
-                                publish.publish(nextMessage, false);
-                            }
-                            return -1;
-                        }
-                    } else {
-                        final int tmp = message.get(SequenceResetType.newSeqNo);
-                        log.info(ident + " hard reset to " + tmp);
-                        for (FixMessageValue nextMessage : nextMessages) {
-                            publish.publish(nextMessage, false);
-                        }
-                        if (tmp == 0) {
-                            throw new RuntimeException("Forbidden to reset to 0");
-                        }
-                        // check what to do with pending messages.
-                        return tmp - 1;
-                    }
-                } else if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                    if (read.message().getType() == LogonType.TYPE) {
-                        nextMessages.add(read);
-                    } else{
-                        manageAdminMessage(read.message().getType(), read); //on traite
-                    }
-                }
-                else {
-                    nextMessages.add(read);
-                }
-                expectedNext++;
-            } else if (seq > expectedNext) {
-                final String msg = ident + " [GAP]  gap during refill, expecting " + expectedNext + " but got " + seq;
-                log.error(msg);
-                throw new GapInRefillException(msg);
-            } else {
-                if (nextWantedSeqNum != seq) {
-                    final String msg = ident + " [GAP] bad seq num during refill, expecting " + nextWantedSeqNum + " but got " + seq;
-                    log.error(msg);
-                    throw new GapInRefillException(msg);
-                }
-                if (!read.header().isTrue(headerDesc.isDup())) {
-                    final String msg = ident + " [GAP] during refill, got " + seq + " but not dup.";
-                    log.error(msg);
-                    throw new GapInRefillException(msg);
-                }
-                // manage admin message ??
-                log.info(ident + " [GAP] past message");
-                if (FixAdminModel.TYPES.contains(read.message().getType())) {
-                    manageAdminMessage(read.message().getType(), read); //on traite
-                }
-                else {
-                    publish.publish(read, true);
-                }
-                nextWantedSeqNum++;
-            }
-            read = reader.read();
-            log.info(ident + " [GAP] next message" + read);
-        }
-    }
-
-    private void manageAdminMessage(GlobType type, FixMessageValue message) {
-        if (type == LogonType.TYPE) {
-            // ignored : can happen if a ResendQuest was sent immediately after a logon
-        } else {
-            if (type == LogoutType.TYPE) {
-                if (!closed) { // closed can be call by logout requested
-                    final CompletableFuture<Void> logout = userSession.logout();
-                    if (logout != null) {
-                        try {
-                            logout.get(1, TimeUnit.SECONDS);
-                        } catch (Exception _) {
-                        }
-                    }
-                    closed = true;
-                    writer.write(userSession.getHeader().duplicate(), LogoutType.create("received logout"), null, false);
-                    shutdown();
-                }
-                expectedNext = clientSeqMsgId.next(expectedNext);
-                throw new LogoutException("Session ended");
-            } else if (type == HeartbeatType.TYPE) {
-                final String s = message.message().get(HeartbeatType.testReqID);
-                if (expectedHeartbeat != null) {
-                    if (expectedHeartbeat.equals(s)) {
-                        expectedHeartbeat = null;
-                    } else {
-                        log.warn(ident + ": Unexpected heartbeat: " + s);
-                    }
-                }
-            } else if (type == TestRequestType.TYPE) {
-                final String testReqId = message.message().get(TestRequestType.testReqID);
-                writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null, false);
-            } else if (type == ResendRequestType.TYPE) {
-                // send async
-                treatReSend(message);
+                log.warn(ident + ": Unexpected heartbeat: " + s);
             }
         }
     }

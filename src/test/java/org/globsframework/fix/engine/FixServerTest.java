@@ -389,6 +389,10 @@ class FixServerTest {
             }
 
             @Override
+            public void logonFail() {
+            }
+
+            @Override
             public Glob getHeader() {
                 return HeaderType.create(senderCompID, targetCompoID);
             }
@@ -508,6 +512,10 @@ class FixServerTest {
             @Override
             public Glob getLogon() {
                 return LogonType.create(1000);
+            }
+
+            @Override
+            public void logonFail() {
             }
 
             @Override

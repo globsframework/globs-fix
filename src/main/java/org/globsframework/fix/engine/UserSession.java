@@ -8,6 +8,8 @@ import java.util.concurrent.CompletableFuture;
 
 public interface UserSession {
 
+    void logonFail();
+
     Glob getHeader();
 
     Glob getLogon();

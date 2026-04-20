@@ -105,7 +105,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                     return fixSession.logout();
                 }
             });
-            executorService.execute(fixSession);
+            executorService.execute(FixSessionImpl.loopRead(fixSession, reader));
         });
         return logoutCompletableFuture;
     }

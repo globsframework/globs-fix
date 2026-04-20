@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -30,5 +31,13 @@ public class RejectType {
         encodedTextLen = builder.declareIntegerField("encodedTextLen", FixFieldType.create("EncodedTextLen"));
         encodedText = builder.declareStringField("encodedText", FixFieldType.create("EncodedText"));
         TYPE = builder.build();
+    }
+
+    public static MutableGlob create(int refSeqNum, String refMsgType, String raison) {
+        return TYPE.instantiate()
+                .set(RejectType.refSeqNum, refSeqNum)
+                .set(RejectType.refMsgType, refMsgType)
+                .set(RejectType.text, raison)
+                ;
     }
 }
