@@ -185,7 +185,8 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         SessionState manageGap(int seqNum, FixMessageValue fixMessageValue) {
-            if (expectedNext < seqNum) {
+            log.warn(ident + " Gap detected '" + expectedNext + "' was expected but got '" + seqNum + "'");
+            if (seqNum < expectedNext) {
                 if (fixMessageValue.message().getType() == SequenceResetType.TYPE) {
                     final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
                     if (newSeqNum > expectedNext) {
@@ -195,11 +196,11 @@ public class FixSessionImpl implements FixMessageListener {
                         log.warn(ident + " duplicate ignored.");
                     }
                 } else {
-                    final boolean isDup = fixMessageValue.header().get(headerDesc.isDup());
+                    final boolean isDup = fixMessageValue.header().isTrue(headerDesc.isDup());
                     if (isDup) {
                         log.warn(ident + " ignore old message.");
                     } else {
-                        log.error(ident + " received old message.");
+                        log.error(ident + " received message.");
                     }
                 }
                 return this;
@@ -266,21 +267,30 @@ public class FixSessionImpl implements FixMessageListener {
         private final ScheduledFuture<?> schedule;
         private final AtomicBoolean logon = new AtomicBoolean(false);
         private Set<Integer> logonSendId = new HashSet<>();
-        int logonSendCount = 0;
+        int logonSendCount;
 
         public InitiatorSessionState() {
             final int seqNum = sentLogon();
             logonSendId.add(seqNum);
-            logonSendCount++;
-            schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+            if (option.delayBeforeResendLogonInS > 0) {
+                logonSendCount = 1;
+                schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+            }
+            else {
+                logonSendCount = -1;
+                schedule = null;
+            }
         }
 
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             logon.set(true);
-            schedule.cancel(false);
+            if (schedule != null) {
+                schedule.cancel(false);
+            }
             consumeSeqNum();
             connect(fixMessageValue);
+            managedInHeartBeat(fixMessageValue);
             return new ConnectedSessionState();
         }
 
@@ -316,7 +326,10 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         private void endSelf() {
-            schedule.cancel(false);
+            if (logonSendCount >= -1 && schedule != null) {
+                logonSendCount = -1;
+                schedule.cancel(false);
+            }
         }
 
         synchronized private void retryLogon() {
@@ -356,8 +369,13 @@ public class FixSessionImpl implements FixMessageListener {
         protected int firstGapInGap = -1;
 
         public UnConnectedGapSessionState(int logonCount, int firstReceivedSeqNum) {
-            this.logonCount = logonCount;
-            schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+            if (option.delayBeforeResendLogonInS > 0 && logonCount > 0) {
+                this.logonCount = logonCount;
+                schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
+            } else {
+                this.logonCount = -1;
+                schedule = null;
+            }
             this.firstReceivedSeqNum = firstReceivedSeqNum;
             log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
             final MutableGlob header = userSession.getHeader().duplicate();
@@ -367,7 +385,7 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         synchronized private void retryLogon() {
-            if (schedule.isCancelled()) {
+            if (logonCount == -1 || schedule.isCancelled()) {
                 return;
             }
             if (option.maxRetryLogon == -1 || logonCount > option.maxRetryLogon) {
@@ -381,6 +399,7 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             connect(fixMessageValue);
+            managedInHeartBeat(fixMessageValue);
             for (FixMessageValue messageValue : pastAppMessage) {
                 appMessageReceiver.messages(messageValue);
                 final int current = messageValue.header().get(headerDesc.seqNumField());
@@ -395,8 +414,8 @@ public class FixSessionImpl implements FixMessageListener {
                 expectedNext = clientSeqMsgId.reset(nextExpectedFuturSeqNum - 1);
                 return new ConnectedSessionState();
             }
-            return new ConnectedGapSessionState(this.nextExpectedFuturSeqNum,
-                    firstReceivedSeqNum, this.nextExpectedPastSeqNum, this.futureAppMessage, this.firstGapInGap);
+            return new ConnectedGapSessionState(this.requestSendSeqNum,
+                    firstReceivedSeqNum, this.nextExpectedFuturSeqNum, this.futureAppMessage, this.firstGapInGap);
         }
 
         @Override
@@ -707,6 +726,7 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             connect(fixMessageValue);
+            managedInHeartBeat(fixMessageValue);
             if (seqNum != expectedNext) {
                 return new ConnectedGapSessionState(seqNum);
             } else {
@@ -872,8 +892,8 @@ public class FixSessionImpl implements FixMessageListener {
         }
     }
 
-    private void managedInHeartBeat(FixMessageValue message) {
-        final Glob logon = message.message();
+    private void managedInHeartBeat(FixMessageValue fixLogon) {
+        final Glob logon = fixLogon.message();
         heartbeatInMSIn = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
         scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, heartbeatInMSIn - 100, TimeUnit.MILLISECONDS);
     }

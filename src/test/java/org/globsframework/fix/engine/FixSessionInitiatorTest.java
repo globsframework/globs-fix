@@ -8,16 +8,13 @@ import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.deserializer.*;
 import org.globsframework.fix.dictionary.FixModel;
-import org.globsframework.fix.dictionary.admin.HeartbeatType;
-import org.globsframework.fix.dictionary.admin.LogonType;
-import org.globsframework.fix.dictionary.admin.LogoutType;
+import org.globsframework.fix.dictionary.admin.*;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.Publish;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +25,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class FixSessionInitiatorTest {
     private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -65,26 +64,45 @@ class FixSessionInitiatorTest {
         fixSession = new FixSessionImpl(executorService, writer, userSession, new InMemoryClientSeqMsgId(), new NoFixMessageRepository(),
                 HeaderType.getHeaderDesc(), () -> {
         },
-                true, new FixSessionImpl.Option(false, 10, 3));
+                true, new FixSessionImpl.Option(false, -1, 0));
     }
 
     @Test
     void nominalLogon() throws Exception {
         final FixMessageValue read = fixReader.read();
-        Assertions.assertEquals(LogonType.TYPE, read.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10), null));
+        assertEquals(LogonType.TYPE, read.message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
         userSession.connected.get(1, TimeUnit.SECONDS);
         fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.TYPE.instantiate(), null));
         final FixMessageValue message = userSession.getMessage();
-        Assertions.assertEquals(QuoteRequestType.TYPE, message.message().getType());
+        assertEquals(QuoteRequestType.TYPE, message.message().getType());
         fixSession.newMessage(new FixMessageValue(getNextHeader(3), LogoutType.create("Bye"), null));
         final FixMessageValue bye = fixReader.read();
-        Assertions.assertEquals(LogoutType.TYPE, bye.message().getType());
-        Assertions.assertEquals("Requested", bye.message().get(LogoutType.text));
+        assertEquals(LogoutType.TYPE, bye.message().getType());
+        assertEquals("Requested", bye.message().get(LogoutType.text));
     }
 
-
-
+    @Test
+    void gapAtStart() throws Exception {
+        final FixMessageValue read = fixReader.read();
+        assertEquals(LogonType.TYPE, read.message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(10), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+        final FixMessageValue message = fixReader.read();
+        assertEquals(ResendRequestType.TYPE, message.message().getType());
+        assertEquals(1, message.message().get(ResendRequestType.beginSeqNo));
+        assertEquals(9, message.message().get(ResendRequestType.endSeqNo));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(11), QuoteRequestType.create("11"), null));
+        assertTrue(userSession.checkEmpty());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), QuoteRequestType.create("1"), null));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2"), null));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(3), SequenceResetType.create(true, 9), null));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(12), QuoteRequestType.create("12"), null));
+        assertEquals("1", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("11", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("12", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+    }
 
 
     private MutableGlob getNextHeader(int seqNum) {
@@ -125,6 +143,15 @@ class FixSessionInitiatorTest {
             synchronized (this) {
                 received.add(fixMessageValue);
                 notify();
+            }
+        }
+
+        public boolean checkEmpty() throws InterruptedException {
+            synchronized (this) {
+                if (received.isEmpty()) {
+                    this.wait(100);
+                }
+                return received.isEmpty();
             }
         }
 

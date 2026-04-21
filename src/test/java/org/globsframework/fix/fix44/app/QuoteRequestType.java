@@ -7,6 +7,8 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
@@ -26,6 +28,10 @@ public class QuoteRequestType {
     public static final StringField text;
     public static final IntegerField encodedTextLen;
     public static final StringField encodedText;
+
+    public static MutableGlob create(String quoteId) {
+        return TYPE.instantiate().set(quoteReqID, quoteId);
+    }
 
     public static class NoRelatedSym {
         public static final GlobType TYPE;
