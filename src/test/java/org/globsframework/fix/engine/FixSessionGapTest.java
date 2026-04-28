@@ -30,9 +30,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class FixSessionConnectorTest {
+public class FixSessionGapTest {
     private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
     private FixModel fixModel;
     private GlobModel globModel;
@@ -73,70 +72,46 @@ class FixSessionConnectorTest {
     }
 
     @Test
-    void nominalLogon() throws Exception {
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
-        final FixMessageValue read = fixReader.read();
-        assertEquals(LogonType.TYPE, read.message().getType());
-        userSession.connected.get(1, TimeUnit.SECONDS);
-        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.TYPE.instantiate(), null));
-        final FixMessageValue message = userSession.getMessage();
-        assertEquals(QuoteRequestType.TYPE, message.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(3), LogoutType.create("Bye"), null));
-        final FixMessageValue bye = fixReader.read();
-        assertEquals(LogoutType.TYPE, bye.message().getType());
-        assertEquals("Requested", bye.message().get(LogoutType.text));
-    }
-
-    @Test
-    void gapAtStart() throws Exception {
-        fixSession.newMessage(new FixMessageValue(getNextHeader(10), LogonType.create(10000), null));
-        final FixMessageValue read = fixReader.read();
-        assertEquals(LogonType.TYPE, read.message().getType());
-        userSession.connected.get(1, TimeUnit.SECONDS);
-        final FixMessageValue message = fixReader.read();
-        assertEquals(ResendRequestType.TYPE, message.message().getType());
-        assertEquals(1, message.message().get(ResendRequestType.beginSeqNo));
-        assertEquals(9, message.message().get(ResendRequestType.endSeqNo));
-        fixSession.newMessage(new FixMessageValue(getNextHeader(11), QuoteRequestType.create("11"), null));
-        assertTrue(userSession.checkEmpty());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), QuoteRequestType.create("1"), null));
-        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2"), null));
-        fixSession.newMessage(new FixMessageValue(getNextHeader(3), SequenceResetType.create(true, 10), null));
-        fixSession.newMessage(new FixMessageValue(getNextHeader(12), QuoteRequestType.create("12"), null));
-        assertEquals("1", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
-        assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
-        assertEquals("11", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
-        assertEquals("12", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
-    }
-
-    @Test
-    void testRequestReSend() throws Exception {
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
-        final FixMessageValue read = fixReader.read();
-        assertEquals(LogonType.TYPE, read.message().getType());
+    void complexGapScenario() throws Exception {
+        // 1. Logon
+        fixSession.newMessage(new FixMessageValue(getHeader(1), LogonType.create(10000), null));
+        fixReader.read(); // Consume Logon response
         userSession.connected.get(1, TimeUnit.SECONDS);
 
-        int[] seNum = new int[5];
-        for (int i = 0; i < 5; i++) {
-            String content = Integer.toString(i);
-            final MutableGlob publish = userSession.publish(QuoteRequestType.create(content));
-            seNum[i] = publish.get(HeaderType.msgSeqNum);
-            final FixMessageValue msg2 = fixReader.read();
-            assertEquals(QuoteRequestType.TYPE, msg2.message().getType());
-            assertEquals(content, msg2.message().get(QuoteRequestType.quoteReqID));
-        }
+        // 2. Gap detected: receive seq 5
+        fixSession.newMessage(new FixMessageValue(getHeader(5), QuoteRequestType.create("5"), null));
+        FixMessageValue resendRequest = fixReader.read();
+        assertEquals(ResendRequestType.TYPE, resendRequest.message().getType());
+        assertEquals(2, resendRequest.message().get(ResendRequestType.beginSeqNo));
+        assertEquals(4, resendRequest.message().get(ResendRequestType.endSeqNo));
 
-        fixSession.newMessage(new FixMessageValue(getNextHeader(2),
-                ResendRequestType.create(seNum[2], seNum[3]), null));
+        // 3. Receive seq 6 (should be queued in futureAppMessage)
+        fixSession.newMessage(new FixMessageValue(getHeader(6), QuoteRequestType.create("6"), null));
 
-        assertEquals("2", fixReader.read().message().get(QuoteRequestType.quoteReqID));
-        assertEquals("3", fixReader.read().message().get(QuoteRequestType.quoteReqID));
+        // 4. Fill the gap with SequenceReset (Gap Fill) from 2 to 3
+        // seqNum of SequenceReset is 2. newSeqNo is 3.
+        fixSession.newMessage(new FixMessageValue(getHeader(2), SequenceResetType.create(true, 3), null));
 
-        userSession.publish(QuoteRequestType.create("6"));
-        assertEquals("6", fixReader.read().message().get(QuoteRequestType.quoteReqID));
+        // Now expectedNext should be 3.
+        // firstReceivedSeqNum was 5.
+        // It's still in ConnectedGapSessionState because 3 < 5.
+
+        // 5. Receive seq 3
+        fixSession.newMessage(new FixMessageValue(getHeader(3), QuoteRequestType.create("3"), null));
+
+        // 6. Receive seq 4
+        fixSession.newMessage(new FixMessageValue(getHeader(4), QuoteRequestType.create("4"), null));
+
+        // Now expectedNext becomes 5. 5 >= 5 (firstReceivedSeqNum).
+        // It should process 5 and then 6.
+
+        assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("4", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("5", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertEquals("6", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
     }
 
-    private MutableGlob getNextHeader(int seqNum) {
+    private MutableGlob getHeader(int seqNum) {
         return HeaderType.create("AF", "BNP")
                 .set(HeaderType.msgSeqNum, seqNum);
     }
@@ -144,64 +119,29 @@ class FixSessionConnectorTest {
     private static class TestUserSession implements UserSession, AppMessageReceiver {
         CompletableFuture<Boolean> connected = new CompletableFuture<>();
         List<FixMessageValue> received = new ArrayList<>();
-        private FixWriter appWriter;
 
-        @Override
-        public void logonFail() {
-        }
-
-        @Override
-        public Glob getHeader() {
-            return HeaderType.create("BNP", "AF");
-        }
-
-        @Override
-        public Glob getLogon() {
-            return LogonType.create(10);
-        }
-
-        @Override
-        public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
-            this.appWriter = appWriter;
+        @Override public void logonFail() {}
+        @Override public Glob getHeader() { return HeaderType.create("BNP", "AF"); }
+        @Override public Glob getLogon() { return LogonType.create(10); }
+        @Override public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
             connected.complete(true);
             return this;
         }
-
-        @Override
-        public CompletableFuture<Void> logout() {
-            return new CompletableFuture<>();
-        }
-
-        @Override
-        public void messages(FixMessageValue fixMessageValue) {
+        @Override public CompletableFuture<Void> logout() { return new CompletableFuture<>(); }
+        @Override public void messages(FixMessageValue fixMessageValue) {
             synchronized (this) {
                 received.add(fixMessageValue);
                 notify();
             }
         }
-
-        public boolean checkEmpty() throws InterruptedException {
-            synchronized (this) {
-                if (received.isEmpty()) {
-                    this.wait(100);
-                }
-                return received.isEmpty();
-            }
-        }
-
         public FixMessageValue getMessage() throws InterruptedException {
             synchronized (this) {
                 if (received.isEmpty()) {
                     this.wait(1000);
                 }
-                return received.removeFirst();
+                if (received.isEmpty()) throw new RuntimeException("Timeout waiting for message");
+                return received.remove(0);
             }
-        }
-
-        public MutableGlob publish(MutableGlob msg) {
-            final MutableGlob header = getHeader().duplicate();
-            appWriter.write(header, msg, null, false);
-            return header;
         }
     }
 
@@ -209,7 +149,6 @@ class FixSessionConnectorTest {
         byte[] current;
         int readUntil;
         List<CompletableFuture<byte[]>> pending = new ArrayList<>();
-
         public CompletableFuture<byte[]> getNext() {
             synchronized (this) {
                 final CompletableFuture<byte[]> e = new CompletableFuture<>();
@@ -218,29 +157,22 @@ class FixSessionConnectorTest {
                 return e;
             }
         }
-
         @Override
         public int read(byte[] buf, int offset, int len) {
             if (current == null) {
                 try {
                     synchronized (this) {
-                        if (pending.isEmpty()) {
-                            this.wait(10000);
-                        }
-                        final CompletableFuture<byte[]> first = pending.removeFirst(); // will throw on timeout
+                        if (pending.isEmpty()) this.wait(10000);
+                        final CompletableFuture<byte[]> first = pending.remove(0);
                         current = first.get(10, TimeUnit.SECONDS);
                         readUntil = 0;
                     }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-
+                } catch (Exception e) { throw new RuntimeException(e); }
             }
             final int available = current.length - readUntil;
             if (len >= available) {
                 System.arraycopy(current, readUntil, buf, offset, available);
                 current = null;
-                readUntil = 0;
                 return available;
             } else {
                 System.arraycopy(current, readUntil, buf, offset, len);

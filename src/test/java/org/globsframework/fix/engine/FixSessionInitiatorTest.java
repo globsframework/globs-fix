@@ -110,7 +110,7 @@ class FixSessionInitiatorTest {
         assertTrue(userSession.checkEmpty());
         fixSession.newMessage(new FixMessageValue(getNextHeader(1), QuoteRequestType.create("1"), null));
         fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2"), null));
-        fixSession.newMessage(new FixMessageValue(getNextHeader(3), SequenceResetType.create(true, 9), null));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(3), SequenceResetType.create(true, 10), null));
         fixSession.newMessage(new FixMessageValue(getNextHeader(12), QuoteRequestType.create("12"), null));
         assertEquals("1", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
         assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));

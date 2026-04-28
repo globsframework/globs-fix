@@ -213,7 +213,7 @@ public class FixSessionImpl implements FixMessageListener {
                     final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
                     if (newSeqNum > expectedNext) {
                         log.warn(ident + " past sequence reset with future seq : reset seqNum to " + newSeqNum);
-                        expectedNext = clientSeqMsgId.reset(newSeqNum);
+                        expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
                     } else {
                         log.warn(ident + " duplicate ignored.");
                     }
@@ -236,11 +236,10 @@ public class FixSessionImpl implements FixMessageListener {
             consumeSeqNum();
             final boolean gapFillFlag = fixMessageValue.message().isTrue(SequenceResetType.gapFillFlag);
             if (gapFillFlag) {
-                expectedNext = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+                expectedNext = clientSeqMsgId.reset(fixMessageValue.message().get(SequenceResetType.newSeqNo) - 1);
             } else {
-                expectedNext = fixMessageValue.message().get(SequenceResetType.newSeqNo);
+                expectedNext = clientSeqMsgId.reset(fixMessageValue.message().get(SequenceResetType.newSeqNo) - 1);
             }
-            clientSeqMsgId.reset(expectedNext);
             return this;
         }
 
@@ -277,7 +276,6 @@ public class FixSessionImpl implements FixMessageListener {
             treatTestRequest(fixMessageValue);
             return this;
         }
-
         abstract public SessionState gapState(int seqNum);
     }
 
@@ -288,7 +286,6 @@ public class FixSessionImpl implements FixMessageListener {
     private void sendReject(int seqNum, String msgType, String msg) {
         writer.write(userSession.getHeader().duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
     }
-
 
     class InitiatorSessionState extends AbstractSessionState {
         private final ScheduledFuture<?> schedule;
@@ -352,7 +349,7 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public synchronized SessionState gapState(int seqNum) {
             endSelf();
-            return new UnConnectedGapSessionState(logonSendCount, seqNum);
+            return new WaitForLogonGapSessionState(logonSendCount, seqNum);
         }
 
         private void endSelf() {
@@ -388,7 +385,7 @@ public class FixSessionImpl implements FixMessageListener {
         expectedNext = clientSeqMsgId.next(expectedNext);
     }
 
-    private class UnConnectedGapSessionState implements SessionState {
+    private class WaitForLogonGapSessionState implements SessionState {
         private int logonCount;
         private final ScheduledFuture<?> schedule;
         protected final int requestSendSeqNum;
@@ -399,7 +396,7 @@ public class FixSessionImpl implements FixMessageListener {
         protected List<FixMessageValue> pastAppMessage = new ArrayList<>();
         protected int firstGapInGap = -1;
 
-        public UnConnectedGapSessionState(int logonCount, int firstReceivedSeqNum) {
+        public WaitForLogonGapSessionState(int logonCount, int firstReceivedSeqNum) {
             if (option.delayBeforeResendLogonInS > 0 && logonCount > 0) {
                 this.logonCount = logonCount;
                 schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
@@ -413,7 +410,7 @@ public class FixSessionImpl implements FixMessageListener {
             final MutableGlob header = userSession.getHeader().duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
-            nextExpectedFuturSeqNum = firstReceivedSeqNum + 1;
+            nextExpectedFuturSeqNum = firstReceivedSeqNum + 1; // the message is received
         }
 
         synchronized private void retryLogon() {
@@ -591,7 +588,7 @@ public class FixSessionImpl implements FixMessageListener {
             final MutableGlob header = userSession.getHeader().duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
-            nextExpectedFuturSeqNum = firstReceivedSeqNum + 1;
+            nextExpectedFuturSeqNum = firstReceivedSeqNum;
         }
 
         public ConnectedGapSessionState(int requestSendSeqNum, int firstReceivedSeqNum, int nextExpectedFuturSeqNum,
@@ -606,6 +603,10 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+            if (seqNum == expectedNext) {
+                consume(seqNum);
+                return checkGapComplete(seqNum);
+            }
             consume(seqNum);
             return this;
         }
@@ -623,10 +624,16 @@ public class FixSessionImpl implements FixMessageListener {
             consume(seqNum);
             treatHeartBeat(fixMessageValue);
             return this;
+//            return checkGapComplete(seqNum);
         }
 
         @Override
         public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+//            if (seqNum == expectedNext) {
+//                consume(seqNum);
+//                treatReSend(fixMessageValue);
+//                return checkGapComplete(seqNum);
+//            }
             consume(seqNum);
             treatReSend(fixMessageValue);
             return this;
@@ -634,6 +641,11 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+//            if (seqNum == expectedNext) {
+//                consume(seqNum);
+//                treatTestRequest(fixMessageValue);
+//                return checkGapComplete(seqNum);
+//            }
             consume(seqNum);
             treatTestRequest(fixMessageValue);
             return this;
@@ -646,20 +658,29 @@ public class FixSessionImpl implements FixMessageListener {
                 expectedNext = firstReceivedSeqNum; // not real update of next expected : updated to force to connected state
                 nextExpectedFuturSeqNum = newSeqNum;
             } else if (newSeqNum <= firstReceivedSeqNum && newSeqNum > expectedNext) {
-                expectedNext = clientSeqMsgId.reset(newSeqNum);
+                expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
             }
+            consume(seqNum);
             return checkGapComplete(seqNum);
         }
 
         private SessionState checkGapComplete(int seqNum) {
             if (expectedNext >= firstReceivedSeqNum) {
+//                List<FixMessageValue> messages = new ArrayList<>(futureAppMessage);
+//                futureAppMessage.clear();
                 for (FixMessageValue messageValue : futureAppMessage) {
-                    appMessageReceiver.messages(messageValue);
                     final int current = messageValue.header().get(headerDesc.seqNumField());
+//                    if (!FixAdminModel.TYPES.contains(messageValue.message().getType())) {
+                        appMessageReceiver.messages(messageValue);
+//                    }
                     expectedNext = clientSeqMsgId.reset(current);
                 }
                 if (seqNum >= expectedNext) {
                     expectedNext = clientSeqMsgId.reset(seqNum);
+                }
+                if (firstGapInGap != -1) {
+                    log.info(ident + " gap in gap detected at " + firstGapInGap + " requesting resend.");
+                    return new ConnectedGapSessionState(firstGapInGap);
                 }
                 return new ConnectedSessionState();
             }
@@ -677,12 +698,12 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         void consume(int seqNum) {
-            if (seqNum == nextExpectedFuturSeqNum) {
-                nextExpectedFuturSeqNum++;
-            } else if (seqNum == expectedNext) {
+            if (seqNum == expectedNext) {
                 expectedNext = clientSeqMsgId.next(expectedNext);
+            } else if (seqNum >= nextExpectedFuturSeqNum) {
+                nextExpectedFuturSeqNum = seqNum + 1;
             } else {
-                log.warn(ident + " (connected) can not consume " + seqNum);
+                log.warn(ident + " (connected) can not consume " + seqNum + " expectedNext " + expectedNext + " nextExpectedFuturSeqNum " + nextExpectedFuturSeqNum);
             }
         }
 
@@ -696,16 +717,23 @@ public class FixSessionImpl implements FixMessageListener {
             if (seqNum == expectedNext) {
                 appMessageReceiver.messages(fixMessageValue);
                 consume(seqNum);
-                return this;
+                return checkGapComplete(seqNum);
             }
-            log.warn(ident + " at " + seqNum + ", app message ignored");
+            if (seqNum > expectedNext && seqNum < firstReceivedSeqNum) {
+                log.info(ident + " message " + seqNum + " received during gap (gap in gap)");
+            }
+            log.warn(ident + " at " + seqNum + ", app message ignored expected " + expectedNext + " firstReceivedSeqNum " + firstReceivedSeqNum + " nextExpectedFuturSeqNum " + nextExpectedFuturSeqNum);
             return this;
         }
 
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
             if (seqNum < expectedNext) {
-                log.warn(ident + " unexpected past seqNum " + seqNum);
+                if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
+                    log.info(ident + " duplicate messages ignored.");
+                } else {
+                    log.warn(ident + " unexpected past seqNum " + seqNum);
+                }
             }
             if (seqNum > nextExpectedFuturSeqNum) {
                 log.warn(ident + " unexpected futur seqNum " + seqNum + " gap in gap");
@@ -713,13 +741,6 @@ public class FixSessionImpl implements FixMessageListener {
                     firstGapInGap = seqNum;
                 }
             }
-            if (seqNum == nextExpectedFuturSeqNum) {
-                return this;
-            }
-            if (seqNum == expectedNext) {
-                return this;
-            }
-            log.warn(ident + " gap in gap in past.");
             return this;
         }
     }
@@ -770,6 +791,8 @@ public class FixSessionImpl implements FixMessageListener {
         }
     }
 
+    // special behavior : we only expect logon message
+    // we ignore expected next in checkSeqNum
     class AcceptorSessionState implements SessionState {
 
         @Override
@@ -778,7 +801,8 @@ public class FixSessionImpl implements FixMessageListener {
             managedInHeartBeat(fixMessageValue);
             sentLogon();
             if (seqNum != expectedNext) {
-                return new ConnectedGapSessionState(seqNum);
+                final ConnectedGapSessionState connectedGapSessionState = new ConnectedGapSessionState(seqNum);
+                return connectedGapSessionState.logon(seqNum, fixMessageValue); // special case where we return a gap state in a change stete not in seqNumCheck
             } else {
                 consumeSeqNum();
                 return new ConnectedSessionState();
@@ -812,10 +836,6 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
-            if (fixMessageValue.message().getType() != LogonType.TYPE) {
-                shutdown();
-                return new LogoutSessionState();
-            }
             return this;
         }
 
