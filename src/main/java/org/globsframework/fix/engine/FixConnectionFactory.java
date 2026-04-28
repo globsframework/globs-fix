@@ -66,7 +66,7 @@ public class FixConnectionFactory implements OnNewConnection {
                     log.info("End of stream reached");
                     return -1;
                 }
-                log.info("read " + new String(buf, offset, read));
+//                log.info("read " + new String(buf, offset, read));
                 return read;
             } catch (IOException e) {
                 throw new RuntimeException(e);

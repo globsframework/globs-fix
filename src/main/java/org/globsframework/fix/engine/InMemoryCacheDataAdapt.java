@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
-import org.globsframework.fix.dictionary.FixMessage;
 import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.MsgSeqProvider;
@@ -24,10 +23,14 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
     private final IntegerField seqNumField;
     private int firstId;
 
-    public InMemoryCacheDataAdapt(int maxSize, IntegerField seqNumField) {
+    private InMemoryCacheDataAdapt(int maxSize, IntegerField seqNumField) {
         this.maxSize = maxSize;
         this.seqNumField = seqNumField;
         firstId = 0;
+    }
+
+    public static FixInfoProvider.DataAdapt create(int maxSize, IntegerField seqNumField){
+        return new InMemoryCacheDataAdapt(maxSize, seqNumField);
     }
 
     @Override
@@ -62,7 +65,8 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
         };
     }
 
-    public MsgSeqProvider getMsgSeqProvider() {
+    @Override
+    public MsgSeqProvider getSelfMsgSeqProvider() {
         return msgSeqProvider;
     }
 

@@ -7,11 +7,11 @@ public class InMemoryClientSeqMsgId implements ClientSeqMsgId {
 
     @Override
     public int next(int expectedNext) {
-        final int i = currentSeqNum.incrementAndGet();
-        if (i != expectedNext) {
-            throw new RuntimeException("invalide state " + i + " was expected but got " + expectedNext);
+        int expected = currentSeqNum.get() + 1;
+        if (expected != expectedNext) {
+            throw new RuntimeException("invalide state " + expected + " was expected but got " + expectedNext);
         }
-        return i + 1;
+        return currentSeqNum.incrementAndGet() + 1;
     }
 
     @Override

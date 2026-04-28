@@ -7,6 +7,11 @@ public class BasicMsgSeqProvider implements MsgSeqProvider {
     private boolean closed = false;
 
     @Override
+    public int current() {
+        return counter;
+    }
+
+    @Override
     synchronized public int next() {
         if (closed) {
             throw new RuntimeException("seq num provider is closed");

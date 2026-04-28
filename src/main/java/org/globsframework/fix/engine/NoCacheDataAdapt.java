@@ -15,7 +15,7 @@ class NoCacheDataAdapt implements FixInfoProvider.DataAdapt {
         return writerBuilder.createWriter(publish, msgSeqProvider);
     }
 
-    public MsgSeqProvider getMsgSeqProvider() {
+    public MsgSeqProvider getSelfMsgSeqProvider() {
         return msgSeqProvider;
     }
 

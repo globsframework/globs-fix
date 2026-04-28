@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class FixSessionInitiatorTest {
+class FixSessionConnectorTest {
     private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
     private FixModel fixModel;
     private GlobModel globModel;
@@ -69,14 +69,14 @@ class FixSessionInitiatorTest {
                 fixMessageRepository.getSelfMsgSeqProvider(), fixMessageRepository.getCachedData(),
                 HeaderType.getHeaderDesc(), () -> {
         },
-                true, new FixSessionImpl.Option(false, -1, -1, 0));
+                false, new FixSessionImpl.Option(false, -1, -1, 0));
     }
 
     @Test
     void nominalLogon() throws Exception {
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
         final FixMessageValue read = fixReader.read();
         assertEquals(LogonType.TYPE, read.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
         userSession.connected.get(1, TimeUnit.SECONDS);
         fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.TYPE.instantiate(), null));
         final FixMessageValue message = userSession.getMessage();
@@ -88,19 +88,10 @@ class FixSessionInitiatorTest {
     }
 
     @Test
-    void shutdown() throws Exception {
-        final FixMessageValue read = fixReader.read();
-        assertEquals(LogonType.TYPE, read.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
-        userSession.connected.get(1, TimeUnit.SECONDS);
-        fixSession.logout();
-    }
-
-    @Test
     void gapAtStart() throws Exception {
+        fixSession.newMessage(new FixMessageValue(getNextHeader(10), LogonType.create(10000), null));
         final FixMessageValue read = fixReader.read();
         assertEquals(LogonType.TYPE, read.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(10), LogonType.create(10000), null));
         userSession.connected.get(1, TimeUnit.SECONDS);
         final FixMessageValue message = fixReader.read();
         assertEquals(ResendRequestType.TYPE, message.message().getType());
@@ -120,9 +111,9 @@ class FixSessionInitiatorTest {
 
     @Test
     void testRequestReSend() throws Exception {
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
         final FixMessageValue read = fixReader.read();
         assertEquals(LogonType.TYPE, read.message().getType());
-        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
         userSession.connected.get(1, TimeUnit.SECONDS);
 
         int[] seNum = new int[5];

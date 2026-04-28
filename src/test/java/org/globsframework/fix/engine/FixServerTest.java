@@ -128,7 +128,7 @@ class FixServerTest {
             fixClient.disconnect().join();
         }
 
-        //test GAP in client
+        System.out.println("test GAP in client");
         priceListener.actualPrices = new CompletableFuture<>();
         clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
         {
@@ -146,7 +146,7 @@ class FixServerTest {
             fixClient.disconnect().join();
         }
 
-        //test GAP on server side
+        System.out.println("test GAP on server side");
         priceListener.actualPrices = new CompletableFuture<>();
         serverSeqMsgId.reset(serverSeqMsgId.current() - 4);
         {
@@ -164,7 +164,7 @@ class FixServerTest {
             fixClient.disconnect().join();
         }
 
-        //test GAP on server and client side
+        System.out.println("test GAP on server and client side");
         priceListener.actualPrices = new CompletableFuture<>();
         serverSeqMsgId.reset(serverSeqMsgId.current() - 4);
         clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
@@ -188,7 +188,7 @@ class FixServerTest {
     @Test
     void testWithSave() throws Exception {
 
-        final FixInfoProvider.DataAdapt acceptorDataAdapt = new InMemoryCacheDataAdapt(10, headerDesc.seqNumField());
+        final FixInfoProvider.DataAdapt acceptorDataAdapt =  InMemoryCacheDataAdapt.create(10, headerDesc.seqNumField());
         ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
 
         fixServer = createFixServer(acceptorDataAdapt);
@@ -434,7 +434,7 @@ class FixServerTest {
     public static class LoggerPublish implements Publish {
         @Override
         public void publish(byte[] data, int offset, int length) {
-            log.info("Publishing " + new String(data, offset, length));
+//            log.info("Publishing " + new String(data, offset, length));
         }
     }
 

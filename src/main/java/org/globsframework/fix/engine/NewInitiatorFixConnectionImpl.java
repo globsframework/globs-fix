@@ -48,7 +48,7 @@ public class NewInitiatorFixConnectionImpl implements FixConnectionFactory.NewFi
         final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, writer,
                 userSession,
                 cachedData.clientSeqMsgId(),
-                cachedData.getCachedData(), headerDesc, shutdown, true, FixSessionImpl.Option.op(false));
+                cachedData.getSelfMsgSeqProvider(), cachedData.getCachedData(), headerDesc, shutdown, true, FixSessionImpl.Option.def());
         executorService.execute(Utils.loopRead(fixSession, reader));
         logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
             @Override

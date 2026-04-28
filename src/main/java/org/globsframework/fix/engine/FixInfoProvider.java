@@ -2,6 +2,7 @@ package org.globsframework.fix.engine;
 
 import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.FixWriterBuilder;
+import org.globsframework.fix.serializer.MsgSeqProvider;
 import org.globsframework.fix.serializer.Publish;
 
 public interface FixInfoProvider {
@@ -9,6 +10,8 @@ public interface FixInfoProvider {
 
     interface DataAdapt {
         FixWriter createWriter(Publish publish, FixWriterBuilder writerBuilder);
+
+        MsgSeqProvider getSelfMsgSeqProvider();
 
         FixMessageRepository getCachedData();
 

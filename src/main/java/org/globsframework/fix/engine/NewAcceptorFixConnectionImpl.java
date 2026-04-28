@@ -45,54 +45,23 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
         // first message, we look for the targetComp and senderComp to identify the session
         // and it's dictionary.
         executorService.execute(() -> {
-            byte[] buffer = new byte[1024];
-            int offset = 0;
-            int len = 0;
-            String targetCompID = null;
-            String senderCompID = null;
-            while (targetCompID == null && senderCompID == null) {
-                final int read = byteReader.read(buffer, offset, buffer.length - offset);
-                if (read < 1) {
-                    throw new RuntimeException("EOF");
-                }
-                len += read;
 
-                int start = 0;
-                int equalAt = -1;
-                for (int i = 0; i < len && (targetCompID == null || senderCompID == null); i++) {
-                    if (equalAt == -1 && buffer[i] == '=') {
-                        equalAt = i;
-                    }
-                    if (buffer[i] == sep) {
-                        if (equalAt != -1) {
-                            final int id = Utils.getIntAt(start, equalAt, buffer);
-                            if (id == this.targetCompID) {
-                                targetCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
-                            } else if (id == sendCompID) {
-                                senderCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
-                            }
-                        } else {
-                            throw new RuntimeException("Invalid FIX message format: missing '=' before separator");
-                        }
-                        equalAt = -1;
-                        start = i + 1;
-                    }
-                }
-            }
+            final HeaderFixInfo result = getHeaderFixInfo(byteReader);
 
-            final FixInfoProvider.DataAdapt dataAdapt = fixInfoProvider.getCachedData(senderCompID, targetCompID);
-            final DeserializerFixReaderBuilder readerBuilder = serializerProvider.getReader(senderCompID, targetCompID);
-            final HeaderDesc headerDesc = serializerProvider.getHeaderDesc(senderCompID, targetCompID);
-            final FixReader reader = readerBuilder.createReader(byteReader, buffer, len);
-            final SerializerFixWriterBuilder writerBuilder = serializerProvider.getWriter(senderCompID, targetCompID);
+            final FixInfoProvider.DataAdapt dataAdapt = fixInfoProvider.getCachedData(result.senderCompID(), result.targetCompID());
+            final DeserializerFixReaderBuilder readerBuilder = serializerProvider.getReader(result.senderCompID(), result.targetCompID());
+            final HeaderDesc headerDesc = serializerProvider.getHeaderDesc(result.senderCompID(), result.targetCompID());
+            final FixReader reader = readerBuilder.createReader(byteReader, result.buffer(), result.len());
+            final SerializerFixWriterBuilder writerBuilder = serializerProvider.getWriter(result.senderCompID(), result.targetCompID());
 
             FixWriter writer = dataAdapt.createWriter(publish, writerBuilder);
             final UserLogonSession userLogonSession = serverUserLogonSessionFactory.create(shutdown);
             final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, writer,
-                    userLogonSession.acceptor(senderCompID, targetCompID),
+                    userLogonSession.acceptor(result.senderCompID(), result.targetCompID()),
                     dataAdapt.clientSeqMsgId(),
+                    dataAdapt.getSelfMsgSeqProvider(),
                     dataAdapt.getCachedData(), headerDesc, shutdown, false,
-                    FixSessionImpl.Option.op(false));
+                    FixSessionImpl.Option.def());
             logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
                 @Override
                 public void registerOnClosed(Runnable runnable) {
@@ -107,6 +76,47 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
             executorService.execute(Utils.loopRead(fixSession, reader));
         });
         return logoutCompletableFuture;
+    }
+
+    private HeaderFixInfo getHeaderFixInfo(ByteReader byteReader) {
+        byte[] buffer = new byte[1024];
+        int offset = 0;
+        int len = 0;
+        String targetCompID = null;
+        String senderCompID = null;
+        while (targetCompID == null && senderCompID == null) {
+            final int read = byteReader.read(buffer, offset, buffer.length - offset);
+            if (read < 1) {
+                throw new RuntimeException("EOF");
+            }
+            len += read;
+
+            int start = 0;
+            int equalAt = -1;
+            for (int i = 0; i < len && (targetCompID == null || senderCompID == null); i++) {
+                if (equalAt == -1 && buffer[i] == '=') {
+                    equalAt = i;
+                }
+                if (buffer[i] == sep) {
+                    if (equalAt != -1) {
+                        final int id = Utils.getIntAt(start, equalAt, buffer);
+                        if (id == this.targetCompID) {
+                            targetCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
+                        } else if (id == sendCompID) {
+                            senderCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
+                        }
+                    } else {
+                        throw new RuntimeException("Invalid FIX message format: missing '=' before separator");
+                    }
+                    equalAt = -1;
+                    start = i + 1;
+                }
+            }
+        }
+        return new HeaderFixInfo(buffer, len, targetCompID, senderCompID);
+    }
+
+    private record HeaderFixInfo(byte[] buffer, int len, String targetCompID, String senderCompID) {
     }
 
 }
