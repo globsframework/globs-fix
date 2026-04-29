@@ -21,7 +21,9 @@ import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
-import org.globsframework.fix.serializer.*;
+import org.globsframework.fix.serializer.FixWriter;
+import org.globsframework.fix.serializer.Publish;
+import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;

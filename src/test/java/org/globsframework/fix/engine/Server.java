@@ -37,8 +37,8 @@ public class Server {
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
-                                (String senderCompID, String targetCompID) -> new NoCacheDataAdapt(),
-                                new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
+                        (String senderCompID, String targetCompID) -> new NoCacheDataAdapt(),
+                        new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
         final FixServer fixServer = new FixServer("0.0.0.0", 5456, new FixConnectionFactory(acceptorFixConnection, new FixServerTest.LoggerPublish()));
 
         executorService.submit(fixServer::processConnections);

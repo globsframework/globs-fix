@@ -1,8 +1,8 @@
 package org.globsframework.fix;
 
 import org.openjdk.jmh.annotations.*;
+
 import java.util.concurrent.TimeUnit;
-import java.util.Random;
 
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
@@ -15,7 +15,7 @@ public class UtilsBenchmark {
     @Param({"4", "34", "945", "1934", "98345"})
     private int size;
 
-//    private byte[] data;
+    //    private byte[] data;
     private byte[] buffer;
     private int at = 0;
 

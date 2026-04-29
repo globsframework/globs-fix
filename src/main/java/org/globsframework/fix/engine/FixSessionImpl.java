@@ -624,16 +624,10 @@ public class FixSessionImpl implements FixMessageListener {
             consume(seqNum);
             treatHeartBeat(fixMessageValue);
             return this;
-//            return checkGapComplete(seqNum);
         }
 
         @Override
         public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
-//            if (seqNum == expectedNext) {
-//                consume(seqNum);
-//                treatReSend(fixMessageValue);
-//                return checkGapComplete(seqNum);
-//            }
             consume(seqNum);
             treatReSend(fixMessageValue);
             return this;
@@ -641,11 +635,6 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
-//            if (seqNum == expectedNext) {
-//                consume(seqNum);
-//                treatTestRequest(fixMessageValue);
-//                return checkGapComplete(seqNum);
-//            }
             consume(seqNum);
             treatTestRequest(fixMessageValue);
             return this;
@@ -666,13 +655,9 @@ public class FixSessionImpl implements FixMessageListener {
 
         private SessionState checkGapComplete(int seqNum) {
             if (expectedNext >= firstReceivedSeqNum) {
-//                List<FixMessageValue> messages = new ArrayList<>(futureAppMessage);
-//                futureAppMessage.clear();
                 for (FixMessageValue messageValue : futureAppMessage) {
                     final int current = messageValue.header().get(headerDesc.seqNumField());
-//                    if (!FixAdminModel.TYPES.contains(messageValue.message().getType())) {
-                        appMessageReceiver.messages(messageValue);
-//                    }
+                    appMessageReceiver.messages(messageValue);
                     expectedNext = clientSeqMsgId.reset(current);
                 }
                 if (seqNum >= expectedNext) {

@@ -7,14 +7,17 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.Ref;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.deserializer.*;
+import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
+import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.admin.LogonType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
-import org.globsframework.fix.serializer.*;
+import org.globsframework.fix.serializer.FixWriter;
+import org.globsframework.fix.serializer.Publish;
+import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 import org.globsframework.json.GSonUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -188,7 +191,7 @@ class FixServerTest {
     @Test
     void testWithSave() throws Exception {
 
-        final FixInfoProvider.DataAdapt acceptorDataAdapt =  InMemoryCacheDataAdapt.create(10, headerDesc.seqNumField());
+        final FixInfoProvider.DataAdapt acceptorDataAdapt = InMemoryCacheDataAdapt.create(10, headerDesc.seqNumField());
         ClientSeqMsgId serverSeqMsgId = acceptorDataAdapt.clientSeqMsgId();
 
         fixServer = createFixServer(acceptorDataAdapt);
@@ -247,10 +250,10 @@ class FixServerTest {
         final NewAcceptorFixConnectionImpl acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
-                                (String senderCompID, String targetCompID) -> {
-                                    return acceptorDataAdapt;
-                                },
-                                new ServerUserLogonSessionFactory(scheduledExecutorService));
+                        (String senderCompID, String targetCompID) -> {
+                            return acceptorDataAdapt;
+                        },
+                        new ServerUserLogonSessionFactory(scheduledExecutorService));
         return new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
     }
 
@@ -428,6 +431,7 @@ class FixServerTest {
                     }
                 };
             }
+
         }
     }
 

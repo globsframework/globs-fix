@@ -7,7 +7,6 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
-import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;

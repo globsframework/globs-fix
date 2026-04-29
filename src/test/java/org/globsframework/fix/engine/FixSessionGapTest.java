@@ -2,17 +2,21 @@ package org.globsframework.fix.engine;
 
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
-import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.deserializer.*;
+import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
+import org.globsframework.fix.deserializer.FixMessageValue;
+import org.globsframework.fix.deserializer.FixReader;
+import org.globsframework.fix.deserializer.FixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
-import org.globsframework.fix.dictionary.admin.*;
+import org.globsframework.fix.dictionary.admin.HeartbeatType;
+import org.globsframework.fix.dictionary.admin.LogonType;
+import org.globsframework.fix.dictionary.admin.ResendRequestType;
+import org.globsframework.fix.dictionary.admin.SequenceResetType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
-import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.Publish;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,10 +25,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -114,71 +115,5 @@ public class FixSessionGapTest {
     private MutableGlob getHeader(int seqNum) {
         return HeaderType.create("AF", "BNP")
                 .set(HeaderType.msgSeqNum, seqNum);
-    }
-
-    private static class TestUserSession implements UserSession, AppMessageReceiver {
-        CompletableFuture<Boolean> connected = new CompletableFuture<>();
-        List<FixMessageValue> received = new ArrayList<>();
-
-        @Override public void logonFail() {}
-        @Override public Glob getHeader() { return HeaderType.create("BNP", "AF"); }
-        @Override public Glob getLogon() { return LogonType.create(10); }
-        @Override public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
-            connected.complete(true);
-            return this;
-        }
-        @Override public CompletableFuture<Void> logout() { return new CompletableFuture<>(); }
-        @Override public void messages(FixMessageValue fixMessageValue) {
-            synchronized (this) {
-                received.add(fixMessageValue);
-                notify();
-            }
-        }
-        public FixMessageValue getMessage() throws InterruptedException {
-            synchronized (this) {
-                if (received.isEmpty()) {
-                    this.wait(1000);
-                }
-                if (received.isEmpty()) throw new RuntimeException("Timeout waiting for message");
-                return received.remove(0);
-            }
-        }
-    }
-
-    private static class CompletableByteReader implements ByteReader {
-        byte[] current;
-        int readUntil;
-        List<CompletableFuture<byte[]>> pending = new ArrayList<>();
-        public CompletableFuture<byte[]> getNext() {
-            synchronized (this) {
-                final CompletableFuture<byte[]> e = new CompletableFuture<>();
-                pending.add(e);
-                this.notify();
-                return e;
-            }
-        }
-        @Override
-        public int read(byte[] buf, int offset, int len) {
-            if (current == null) {
-                try {
-                    synchronized (this) {
-                        if (pending.isEmpty()) this.wait(10000);
-                        final CompletableFuture<byte[]> first = pending.remove(0);
-                        current = first.get(10, TimeUnit.SECONDS);
-                        readUntil = 0;
-                    }
-                } catch (Exception e) { throw new RuntimeException(e); }
-            }
-            final int available = current.length - readUntil;
-            if (len >= available) {
-                System.arraycopy(current, readUntil, buf, offset, available);
-                current = null;
-                return available;
-            } else {
-                System.arraycopy(current, readUntil, buf, offset, len);
-                readUntil += len;
-                return len;
-            }
-        }
     }
 }
