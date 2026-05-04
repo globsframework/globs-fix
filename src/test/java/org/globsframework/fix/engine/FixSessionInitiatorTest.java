@@ -47,7 +47,7 @@ class FixSessionInitiatorTest {
                 new InputStreamReader(getClass().getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
 
-        globModel = new DefaultGlobModel(HeartbeatType.TYPE, LogonType.TYPE, QuoteRequestType.TYPE);
+        globModel = new DefaultGlobModel(QuoteRequestType.TYPE);
         fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
 
         fixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);

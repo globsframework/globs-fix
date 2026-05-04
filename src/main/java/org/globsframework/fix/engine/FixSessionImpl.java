@@ -56,10 +56,11 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     public record Option(boolean resetSeqNumToOneOnGap,
+                         boolean resetToRemoteOnLogon,
                          int delayBeforeForceLogout,
                          int delayBeforeResendLogonInS, int maxRetryLogon) {
         public static Option def() {
-            return new Option(false, 1, 1, 3);
+            return new Option(false, false, 1, 1, 3);
         }
     }
 
@@ -324,6 +325,17 @@ public class FixSessionImpl implements FixMessageListener {
             sendLogout("Requested from initiator");
             shutdown();
             return new LogoutSessionState();
+        }
+
+        @Override
+        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (option.resetToRemoteOnLogon()) {
+                expectedNext = clientSeqMsgId.reset(seqNum);
+                return this;
+            }
+            else {
+                return super.checkSeqNum(seqNum, fixMessageValue);
+            }
         }
 
         @Override
@@ -642,15 +654,22 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
-            final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
-            if (newSeqNum > nextExpectedFuturSeqNum) {
-                expectedNext = firstReceivedSeqNum; // not real update of next expected : updated to force to connected state
-                nextExpectedFuturSeqNum = newSeqNum;
-            } else if (newSeqNum <= firstReceivedSeqNum && newSeqNum > expectedNext) {
-                expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
+            final Glob message = fixMessageValue.message();
+            final int newSeqNum = message.get(SequenceResetType.newSeqNo);
+            if (message.isTrue(SequenceResetType.gapFillFlag)) {
+                if (newSeqNum > nextExpectedFuturSeqNum) {
+                    expectedNext = firstReceivedSeqNum; // not real update of next expected : updated to force to connected state
+                    nextExpectedFuturSeqNum = newSeqNum;
+                } else if (newSeqNum <= firstReceivedSeqNum && newSeqNum > expectedNext) {
+                    expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
+                }
+                consume(seqNum);
+                return checkGapComplete(seqNum);
             }
-            consume(seqNum);
-            return checkGapComplete(seqNum);
+            else {
+                expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
+                return new ConnectedSessionState();
+            }
         }
 
         private SessionState checkGapComplete(int seqNum) {
@@ -786,6 +805,10 @@ public class FixSessionImpl implements FixMessageListener {
             managedInHeartBeat(fixMessageValue);
             sentLogon();
             if (seqNum != expectedNext) {
+                if (option.resetToRemoteOnLogon()) {
+                    expectedNext = clientSeqMsgId.reset(seqNum);
+                    return new ConnectedSessionState();
+                }
                 final ConnectedGapSessionState connectedGapSessionState = new ConnectedGapSessionState(seqNum);
                 return connectedGapSessionState.logon(seqNum, fixMessageValue); // special case where we return a gap state in a change stete not in seqNumCheck
             } else {
@@ -840,7 +863,6 @@ public class FixSessionImpl implements FixMessageListener {
         }
     }
 
-
     public CompletableFuture<Boolean> logout() {
         final CompletableFuture<Void> logout = userSession.logout();
         try {
@@ -875,18 +897,18 @@ public class FixSessionImpl implements FixMessageListener {
         return closedCompletable;
     }
 
-
     private int sentLogon() {
         final MutableGlob logon = userSession.getLogon().duplicate();
         heartbeatInMSOut = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
-        logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
+        if (!option.resetToRemoteOnLogon()) {
+            logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
+        }
         final MutableGlob header = userSession.getHeader().duplicate();
         writer.write(header, logon, null, false);
         return header.get(headerDesc.seqNumField());
     }
-
 
     void treatTestRequest(FixMessageValue fixMessageValue) {
         final String testReqId = fixMessageValue.message().get(TestRequestType.testReqID);
@@ -954,10 +976,10 @@ public class FixSessionImpl implements FixMessageListener {
                         null, false); // send GapFill for trailing admin messages
             }
         } else {
-            final int newSeqNo = endSeq;
-            log.info(ident + " [resend] reset to end " + (newSeqNo + 1));
+            final int newSeqNo = endSeq == 0 ? clientSeqMsgId.current() + 1 : endSeq + 1;
+            log.info(ident + " [resend] reset to end " + (newSeqNo));
             writer.write(userSession.getHeader().duplicate(),
-                    SequenceResetType.create(true, newSeqNo + 1), null, false);
+                    SequenceResetType.create(true, newSeqNo), null, false);
         }
     }
 
@@ -971,7 +993,7 @@ public class FixSessionImpl implements FixMessageListener {
         if (userSession == null) {
             return;
         }
-        long when = System.currentTimeMillis() - (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) + (heartbeatInMSIn * 15) / 100;
+        long when =  (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
         if (when <= 0) {
             expectedHeartbeat = UUID.randomUUID().toString();
             writer.write(userSession.getHeader().duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
@@ -989,11 +1011,12 @@ public class FixSessionImpl implements FixMessageListener {
             log.info(ident + ": Requested heartbeat was received and cleared");
             manageInHeartBeat();
         } else {
-            if (System.currentTimeMillis() - (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) > heartbeatInMSIn) {
+            if (System.currentTimeMillis() - lastMessageReceivedTimeStampInMS > heartbeatInMSIn) {
                 log.error(ident + ": Heartbeat not received " + expectedHeartbeat + ". Shutdown connection.");
                 shutdown.close();
             } else {
                 log.info(ident + ": A message was received, continue.");
+                manageInHeartBeat();
             }
         }
     }
@@ -1002,11 +1025,13 @@ public class FixSessionImpl implements FixMessageListener {
         if (userSession == null) {
             return;
         }
-        long when = System.currentTimeMillis() - (lastWriteOut + heartbeatInMSOut) - 100;
-        if (when > 500) {
+        long timeElapsedSinceWrite = System.currentTimeMillis() - lastWriteOut;
+        long when = heartbeatInMSOut - timeElapsedSinceWrite - 100;
+        if (when <= 0) {
             writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(), null, false);
             when = heartbeatInMSOut;
         }
+        when = Math.max(when, 100);
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, when, TimeUnit.MILLISECONDS);
     }
 
