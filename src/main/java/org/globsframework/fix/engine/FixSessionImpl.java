@@ -51,16 +51,15 @@ public class FixSessionImpl implements FixMessageListener {
     synchronized public void registerOnClosed(Runnable runnable) {
         if (closed) {
             runnable.run();
+            return;
         }
         onClose.add(runnable);
     }
 
-    public record Option(boolean resetSeqNumToOneOnGap,
-                         boolean resetToRemoteOnLogon,
-                         int delayBeforeForceLogout,
+    public record Option(int delayBeforeForceLogout,
                          int delayBeforeResendLogonInS, int maxRetryLogon) {
         public static Option def() {
-            return new Option(false, false, 1, 1, 3);
+            return new Option(1, 1, 3);
         }
     }
 
@@ -205,6 +204,11 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            // FIX spec : bypass check seq num
+            if (fixMessageValue.message().getType() == SequenceResetType.TYPE
+                && !fixMessageValue.message().isTrue(SequenceResetType.gapFillFlag)) {
+                return this;
+            }
             if (seqNum < expectedNext) {
                 if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
                     log.info(ident + " duplicate messages ignored.");
@@ -301,9 +305,9 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
-            consumeSeqNum();
             final boolean gapFillFlag = fixMessageValue.message().isTrue(SequenceResetType.gapFillFlag);
             if (gapFillFlag) {
+                consumeSeqNum();
                 expectedNext = clientSeqMsgId.reset(fixMessageValue.message().get(SequenceResetType.newSeqNo) - 1);
             } else {
                 expectedNext = clientSeqMsgId.reset(fixMessageValue.message().get(SequenceResetType.newSeqNo) - 1);
@@ -402,13 +406,7 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
-            if (option.resetToRemoteOnLogon()) {
-                expectedNext = clientSeqMsgId.reset(seqNum);
-                return this;
-            }
-            else {
-                return super.checkSeqNum(seqNum, fixMessageValue);
-            }
+            return super.checkSeqNum(seqNum, fixMessageValue);
         }
 
         @Override
@@ -897,10 +895,6 @@ public class FixSessionImpl implements FixMessageListener {
             managedInHeartBeat(fixMessageValue);
             sentLogon();
             if (seqNum != expectedNext) {
-                if (option.resetToRemoteOnLogon()) {
-                    expectedNext = clientSeqMsgId.reset(seqNum);
-                    return new ConnectedSessionState();
-                }
                 final ConnectedGapSessionState connectedGapSessionState = new ConnectedGapSessionState(seqNum);
                 return connectedGapSessionState.logon(seqNum, fixMessageValue); // special case where we return a gap state in a change stete not in seqNumCheck
             } else {
@@ -1005,9 +999,7 @@ public class FixSessionImpl implements FixMessageListener {
         heartbeatInMSOut = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
-        if (!option.resetToRemoteOnLogon()) {
-            logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
-        }
+        logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
         final MutableGlob header = userSession.getHeader().duplicate();
         writer.write(header, logon, null, false);
         return header.get(headerDesc.seqNumField());
@@ -1044,12 +1036,6 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private void treatReSend(FixMessageValue message) {
-        if (option.resetSeqNumToOneOnGap()) {
-            writer.write(userSession.getHeader().duplicate(),
-                    SequenceResetType.create(false, 1),
-                    null, true); // send GapFill
-            return;
-        }
         final Integer beginSeq = message.message().get(ResendRequestType.beginSeqNo);
         final int endSeq = message.message().get(ResendRequestType.endSeqNo, 0);
         final FixMessageRepository.FixRecoveredMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
@@ -1062,7 +1048,10 @@ public class FixSessionImpl implements FixMessageListener {
                     }
                 } else {
                     if (gapfill != -1) {
-                        writer.write(userSession.getHeader().duplicate(),
+                        final MutableGlob h = userSession.getHeader().duplicate()
+                                .set(headerDesc.isDup(), true)
+                                .set(headerDesc.seqNumField(), gapfill);
+                        writer.write(h,
                                 SequenceResetType.create(true, d.header().get(headerDesc.seqNumField())),
                                 null, false); // send GapFill
                         gapfill = -1;
@@ -1074,14 +1063,20 @@ public class FixSessionImpl implements FixMessageListener {
                 }
             }
             if (gapfill != -1) {
-                writer.write(userSession.getHeader().duplicate(),
+                final MutableGlob h = userSession.getHeader().duplicate()
+                        .set(headerDesc.isDup(), true)
+                        .set(headerDesc.seqNumField(), gapfill);
+                writer.write(h,
                         SequenceResetType.create(true, endSeq == 0 ? clientSeqMsgId.current() + 1 : endSeq + 1),
                         null, false); // send GapFill for trailing admin messages
             }
         } else {
             final int newSeqNo = endSeq == 0 ? clientSeqMsgId.current() + 1 : endSeq + 1;
             log.info(ident + " [resend] reset to end " + (newSeqNo));
-            writer.write(userSession.getHeader().duplicate(),
+            final MutableGlob h = userSession.getHeader().duplicate()
+                    .set(headerDesc.isDup(), true)
+                    .set(headerDesc.seqNumField(), beginSeq);
+            writer.write(h,
                     SequenceResetType.create(true, newSeqNo), null, false);
         }
     }
