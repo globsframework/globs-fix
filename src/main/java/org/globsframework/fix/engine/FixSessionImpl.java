@@ -213,6 +213,59 @@ public class FixSessionImpl implements FixMessageListener {
                     log.error(msg);
                     // check
                     sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), msg);
+                    SessionState previous = this;
+                    // ignore the message and return to the previous state
+                    return new SessionState() {
+                        @Override
+                        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+                            throw new RuntimeException("Bug : should not be called");
+                        }
+
+                        @Override
+                        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+                            return previous;
+                        }
+
+                        @Override
+                        public String toString() {
+                            return "IgnoreSessionState";
+                        }
+                    };
                 }
             }
             if (expectedNext != seqNum) {
