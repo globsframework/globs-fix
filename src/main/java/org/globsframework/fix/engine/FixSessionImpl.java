@@ -128,7 +128,9 @@ public class FixSessionImpl implements FixMessageListener {
         lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
         final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
         sessionState = sessionState.checkSeqNum(seqNum, fixMessageValue);
-        log.info(ident + " state after checkSeqNum is " + sessionState.getClass());
+        if (log.isInfoEnabled()) {
+            log.info(ident + " state after checkSeqNum is " + sessionState.toString());
+        }
         final Glob message = fixMessageValue.message();
         final GlobType type = message.getType();
         if (FixAdminModel.TYPES.contains(type)) {
@@ -152,7 +154,9 @@ public class FixSessionImpl implements FixMessageListener {
         } else {
             sessionState = sessionState.appMessage(seqNum, fixMessageValue);
         }
-        log.info(ident +" state is " + sessionState.getClass());
+        if (log.isInfoEnabled()) {
+            log.info(ident +" state is " + sessionState.toString());
+        }
     }
 
     interface SessionState {
@@ -174,6 +178,15 @@ public class FixSessionImpl implements FixMessageListener {
         SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue);
 
         SessionState testRequest(int seqNum, FixMessageValue fixMessageValue);
+    }
+
+    private void connect(FixMessageValue fixMessageValue) {
+        log.info(ident + " : user session connected.");
+        appMessageReceiver = userSession.connected(fixMessageValue, appWriter);
+    }
+
+    private void consumeSeqNum() {
+        expectedNext = clientSeqMsgId.next(expectedNext);
     }
 
     abstract class AbstractSessionState implements SessionState {
@@ -198,6 +211,7 @@ public class FixSessionImpl implements FixMessageListener {
                 } else {
                     final String msg = ident + " invalid seq num " + seqNum + " expecting " + expectedNext;
                     log.error(msg);
+                    // check
                     sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), msg);
                 }
             }
@@ -281,7 +295,13 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private void sendLogout(String msg) {
-        writer.write(userSession.getHeader().duplicate(), LogoutType.create(msg), null, false);
+        try {
+            userSession.logout().get(1, TimeUnit.SECONDS);
+        } catch (Exception _) {
+        }
+        closed = true;
+        final MutableGlob header = userSession.getHeader().duplicate();
+        writer.write(header, LogoutType.create(msg), null, false);
     }
 
     private void sendReject(int seqNum, String msgType, String msg) {
@@ -386,15 +406,11 @@ public class FixSessionImpl implements FixMessageListener {
                 logonSendCount++;
             }
         }
-    }
+        @Override
+        public String toString() {
+            return "InitiatorSessionState";
+        }
 
-    private void connect(FixMessageValue fixMessageValue) {
-        log.info(ident + " : user session connected.");
-        appMessageReceiver = userSession.connected(fixMessageValue, appWriter);
-    }
-
-    private void consumeSeqNum() {
-        expectedNext = clientSeqMsgId.next(expectedNext);
     }
 
     private class WaitForLogonGapSessionState implements SessionState {
@@ -564,6 +580,11 @@ public class FixSessionImpl implements FixMessageListener {
             log.warn(ident + " gap in gap in past.");
             return this;
         }
+        @Override
+        public String toString() {
+            return "WaitForLogonGapSessionState";
+        }
+
     }
 
     private class ConnectedSessionState extends AbstractSessionState {
@@ -585,6 +606,12 @@ public class FixSessionImpl implements FixMessageListener {
         public SessionState gapState(int seqNum) {
             return new ConnectedGapSessionState(seqNum);
         }
+
+        @Override
+        public String toString() {
+            return "ConnectedSessionState";
+        }
+
     }
 
     private class ConnectedGapSessionState implements SessionState {
@@ -747,6 +774,11 @@ public class FixSessionImpl implements FixMessageListener {
             }
             return this;
         }
+
+        @Override
+        public String toString() {
+            return "ConnectedGapSessionState";
+        }
     }
 
     private class LogoutSessionState extends AbstractSessionState {
@@ -784,15 +816,22 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
             if (expectedNext != seqNum) {
-                log.info(ident + " receive message in logout statue with bad seqNum " + seqNum + " vs expected " + expectedNext);
+                log.info(ident + " receive message in logout statue with bad seqNum " + seqNum + " vs expected " + expectedNext + " : " + fixMessageValue);
             }
             return this;
         }
 
         private SessionState reject(int seqNum, FixMessageValue fixMessageValue) {
+            consumeSeqNum();
             sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), "logout request");
             return this;
         }
+
+        @Override
+        public String toString() {
+            return "LogoutSessionState";
+        }
+
     }
 
     // special behavior : we only expect logon message
@@ -861,6 +900,12 @@ public class FixSessionImpl implements FixMessageListener {
         public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
             return cancel();
         }
+
+        @Override
+        public String toString() {
+            return "AcceptorSessionState";
+        }
+
     }
 
     public CompletableFuture<Boolean> logout() {
@@ -884,6 +929,11 @@ public class FixSessionImpl implements FixMessageListener {
                     log.warn(ident + " invalid seqNum " + seqNum + " vs expected " + expectedNext);
                 }
                 return new LogoutSessionState();
+            }
+
+            @Override
+            public String toString() {
+                return "ExpectedLogoutSessionState";
             }
         };
         writer.write(userSession.getHeader().duplicate(),

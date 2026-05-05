@@ -24,8 +24,8 @@ public class Client {
     private static final Logger log = LoggerFactory.getLogger(Client.class);
 
     public static void main(String[] args) throws Exception {
-        CompletableFuture<FixServerTest.TestUserClientLogonSession> completableFuture = new CompletableFuture<>();
-        final FixServerTest.ClientUserLogonSessionFactory userLogonSessionFactory = new FixServerTest.ClientUserLogonSessionFactory(completableFuture::complete);
+        CompletableFuture<ClientLogonSession> completableFuture = new CompletableFuture<>();
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(completableFuture::complete);
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(FixServer.class.getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
@@ -53,9 +53,9 @@ public class Client {
 
         fixClient.connect();
 
-        final FixServerTest.TestUserClientLogonSession testUserClientLogonSession = completableFuture.get(10, TimeUnit.MILLISECONDS);
+        final ClientLogonSession clientLogonSession = completableFuture.get(10, TimeUnit.MILLISECONDS);
 
-        final var priceListener = new FixServerTest.TestUserClientLogonSession.PriceListener() {
+        final var priceListener = new ClientLogonSession.PriceListener() {
 
             List<String> prices = new ArrayList<>();
             CompletableFuture<List<String>> priceFuture;
@@ -74,7 +74,7 @@ public class Client {
             }
         };
         priceListener.priceFuture = new CompletableFuture<>();
-        testUserClientLogonSession.subscribe("EUR", priceListener);
+        clientLogonSession.subscribe("EUR", priceListener);
 
         System.out.println("Client.main " + priceListener.priceFuture.get(10, TimeUnit.SECONDS));
 

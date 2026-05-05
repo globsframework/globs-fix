@@ -69,7 +69,7 @@ public class FixSessionGapTest {
                 fixMessageRepository.getSelfMsgSeqProvider(), fixMessageRepository.getCachedData(),
                 HeaderType.getHeaderDesc(), () -> {
         },
-                false, new FixSessionImpl.Option(false, -1, -1, 0));
+                false, new FixSessionImpl.Option(false, false, -1, -1, 0));
     }
 
     @Test

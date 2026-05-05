@@ -17,7 +17,4 @@ public interface FixInfoProvider {
 
         ClientSeqMsgId clientSeqMsgId();
     }
-
-//    record SeqNumAndCache(CachedData cachedData, MsgSeqProvider msgSeqProvider, FixSessionImpl.ClientSeqMsgId clientSeqMsgId) {
-//    }
 }

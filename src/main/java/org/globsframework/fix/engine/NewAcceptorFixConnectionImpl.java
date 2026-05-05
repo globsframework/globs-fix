@@ -5,6 +5,8 @@ import org.globsframework.fix.deserializer.ByteReader;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixReader;
 import org.globsframework.fix.serializer.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
@@ -12,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
 public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFixConnection {
+    private static final Logger log = LoggerFactory.getLogger(NewAcceptorFixConnectionImpl.class);
     public final ExecutorService executorService;
     public final ScheduledExecutorService scheduledExecutorService;
     private final int sendCompID;
@@ -39,7 +42,7 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
 
     @Override
     public CompletableFuture<FixConnectionFactory.FixLogout> onNew(ByteReader byteReader, Publish publish, Shutdown shutdown) {
-
+        log.info("New session to accept.");
         final CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture = new CompletableFuture<>();
 
         // first message, we look for the targetComp and senderComp to identify the session

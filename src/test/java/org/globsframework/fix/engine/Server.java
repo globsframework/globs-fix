@@ -34,11 +34,11 @@ public class Server {
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        final NewAcceptorFixConnectionImpl acceptorFixConnection =
+        final FixConnectionFactory.NewFixConnection acceptorFixConnection =
                 new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
                         serializerProvider,
                         (String senderCompID, String targetCompID) -> new NoCacheDataAdapt(),
-                        new FixServerTest.ServerUserLogonSessionFactory(scheduledExecutorService));
+                        new ServerUserLogonSessionFactory(scheduledExecutorService, 1000, 1));
         final FixServer fixServer = new FixServer("0.0.0.0", 5456, new FixConnectionFactory(acceptorFixConnection, new FixServerTest.LoggerPublish()));
 
         executorService.submit(fixServer::processConnections);

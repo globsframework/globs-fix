@@ -30,9 +30,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -91,9 +89,9 @@ class FixServerTest {
 
         final int port = fixServer.getPort();
 
-        Ref<CompletableFuture<TestUserClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
-        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
-            testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
+        Ref<CompletableFuture<ClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(clientLogonSession -> {
+            testUserClientLogonSessionRef.get().complete(clientLogonSession);
         });
         final NoCacheDataAdapt initiatorDataAdapt = new NoCacheDataAdapt();
         ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
@@ -105,10 +103,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -120,10 +118,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -138,10 +136,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -156,10 +154,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -175,10 +173,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -200,9 +198,9 @@ class FixServerTest {
 
         final int port = fixServer.getPort();
 
-        Ref<CompletableFuture<TestUserClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
-        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(testUserClientLogonSession -> {
-            testUserClientLogonSessionRef.get().complete(testUserClientLogonSession);
+        Ref<CompletableFuture<ClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(clientLogonSession -> {
+            testUserClientLogonSessionRef.get().complete(clientLogonSession);
         });
         final NoCacheDataAdapt initiatorDataAdapt = new NoCacheDataAdapt();
         ClientSeqMsgId clientSeqMsgId = initiatorDataAdapt.clientSeqMsgId();
@@ -214,10 +212,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             final List<String> list = priceListener.actualPrices.get(100, TimeUnit.SECONDS);
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
@@ -231,10 +229,10 @@ class FixServerTest {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
             fixClient.connect();
 
-            final TestUserClientLogonSession testUserClientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
-            Assertions.assertEquals(3, testUserClientLogonSession.checkReceived(3));
+            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            Assertions.assertEquals(3, clientLogonSession.checkReceived(3));
             priceListener.actualPrices = new CompletableFuture<>();
-            testUserClientLogonSession.subscribe("EUR", priceListener);
+            clientLogonSession.subscribe("EUR", priceListener);
             {
                 final List<String> list = priceListener.actualPrices.get(1000, TimeUnit.SECONDS);
                 System.out.println("Prices: " + list);
@@ -253,7 +251,7 @@ class FixServerTest {
                         (String senderCompID, String targetCompID) -> {
                             return acceptorDataAdapt;
                         },
-                        new ServerUserLogonSessionFactory(scheduledExecutorService));
+                        new ServerUserLogonSessionFactory(scheduledExecutorService, 3, 100));
         return new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
     }
 
@@ -278,9 +276,14 @@ class FixServerTest {
 
     static class PricerImpl implements Pricer {
         final ScheduledExecutorService executorService;
+        private final int maxElementToSend;
+        private final long delayInMs;
 
-        public PricerImpl(ScheduledExecutorService executorService) {
+        public PricerImpl(ScheduledExecutorService executorService, int maxElementToSend,
+                          long delayInMs) {
             this.executorService = executorService;
+            this.maxElementToSend = maxElementToSend;
+            this.delayInMs = delayInMs;
         }
 
         @Override
@@ -288,152 +291,13 @@ class FixServerTest {
             AtomicInteger count = new AtomicInteger(0);
             executorService.scheduleAtFixedRate(() -> {
                 price.price(String.valueOf(System.currentTimeMillis()));
-                if (count.incrementAndGet() == 3) {
+                if (count.incrementAndGet() == maxElementToSend) {
                     throw new RuntimeException("Stop");
                 }
-            }, 0, 100, TimeUnit.MILLISECONDS);
+            }, 0, delayInMs, TimeUnit.MILLISECONDS);
         }
     }
 
-    interface Connected {
-        void connected(String targetCompID, TestUserClientLogonSession.ClientUserSession clientUserSession);
-    }
-
-
-    public static class ClientUserLogonSessionFactory implements UserLogonSessionFactory {
-        private final NotifyNewClient notifyNewClient;
-
-
-        interface NotifyNewClient {
-            void newClient(TestUserClientLogonSession testUserClientLogonSession);
-        }
-
-        ClientUserLogonSessionFactory(NotifyNewClient notifyNewClient) {
-            this.notifyNewClient = notifyNewClient;
-        }
-
-        @Override
-        public UserLogonSession create(Shutdown shutdown) {
-            TestUserClientLogonSession testUserClientLogonSession =
-                    new TestUserClientLogonSession(shutdown, "AF", "BNP");
-            notifyNewClient.newClient(testUserClientLogonSession);
-            return testUserClientLogonSession;
-        }
-    }
-
-
-    public static class TestUserClientLogonSession implements UserLogonSession, Connected {
-        private final Shutdown shutdown;
-        private final String senderCompID;
-        private final String targetCompoID;
-        private final Map<String, PriceListener> listeners = new HashMap<>();
-        private final List<FixMessageValue> received = new ArrayList<>();
-
-        public TestUserClientLogonSession(Shutdown shutdown,
-                                          String senderCompID, String targetCompoID) {
-            this.shutdown = shutdown;
-            this.senderCompID = senderCompID;
-            this.targetCompoID = targetCompoID;
-        }
-
-        @Override
-        public UserSession initiator() {
-            return new ClientUserSession(this);
-        }
-
-        @Override
-        public UserSession acceptor(String senderCompID, String targetCompID) {
-            throw new RuntimeException("Expected to be the initiator");
-        }
-
-        public void subscribe(String sym, PriceListener priceListener) {
-            listeners.put(sym, priceListener);
-        }
-
-        @Override
-        public void connected(String targetCompID, ClientUserSession clientUserSession) {
-//            log.info("Connect " + targetCompID + " register " + listeners.size() + " listener");
-//            for (Map.Entry<String, PriceListener> stringPriceListenerEntry : listeners.entrySet()) {
-//                log.info("Register " + stringPriceListenerEntry.getKey());
-//                clientUserSession.subscribe(stringPriceListenerEntry.getKey(), stringPriceListenerEntry.getValue());
-//            }
-        }
-
-        interface PriceListener {
-            void priceChanged(String symbol, String bidPx);
-        }
-
-        public int checkReceived(int count) throws InterruptedException {
-            synchronized (received) {
-                long end = System.currentTimeMillis() + 1000;
-                while (count < received.size() && end > System.currentTimeMillis()) {
-                    received.wait();
-                }
-            }
-            return count;
-        }
-
-        private class ClientUserSession implements UserSession {
-            private final Connected connected;
-
-            public ClientUserSession(Connected connected) {
-                this.connected = connected;
-            }
-
-
-            @Override
-            public CompletableFuture<Void> logout() {
-                return CompletableFuture.completedFuture(null);
-            }
-
-            @Override
-            public Glob getLogon() {
-                return LogonType.create(1000);
-            }
-
-            @Override
-            public void logonFail() {
-            }
-
-            @Override
-            public Glob getHeader() {
-                return HeaderType.create(senderCompID, targetCompoID);
-            }
-
-            @Override
-            public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
-                synchronized (this) {
-                    connected.connected(targetCompoID, this);
-                    for (String symbol : listeners.keySet()) {
-                        appWriter.write(getHeader().duplicate(), QuoteRequestType.TYPE.instantiate()
-                                        .set(QuoteRequestType.quoteReqID, symbol)
-                                , null, false);
-                    }
-                }
-                return new AppMessageReceiver() {
-                    @Override
-                    public void messages(FixMessageValue fixMessageValue) {
-                        synchronized (received) {
-                            received.add(fixMessageValue);
-                            received.notify();
-                        }
-                        if (fixMessageValue.message() != null) {
-                            final Glob message = fixMessageValue.message();
-                            if (message.getType() == QuoteResponseType.TYPE) {
-                                final String quoteRespId = message.get(QuoteResponseType.quoteRespID);
-                                final String bidPx = message.get(QuoteResponseType.bidPx);
-                                final PriceListener priceListener = listeners.get(quoteRespId);
-                                if (priceListener != null) {
-                                    priceListener.priceChanged(quoteRespId, bidPx);
-                                }
-                            }
-                        }
-                    }
-                };
-            }
-
-        }
-    }
 
     public static class LoggerPublish implements Publish {
         @Override
@@ -445,91 +309,7 @@ class FixServerTest {
     //------------------------- Acceptor side
 
 
-    public static class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
-        private final ScheduledExecutorService scheduledExecutorService;
-
-        public ServerUserLogonSessionFactory(ScheduledExecutorService scheduledExecutorService) {
-            this.scheduledExecutorService = scheduledExecutorService;
-        }
-
-        @Override
-        public UserLogonSession create(Shutdown shutdown) {
-            return new TestUserServerLogonSession(shutdown, new PricerImpl(scheduledExecutorService));
-        }
-    }
-
-    private static class TestUserServerLogonSession implements UserLogonSession {
-        private final Shutdown shutdown;
-        private final Pricer pricer;
-
-        public TestUserServerLogonSession(Shutdown shutdown, Pricer pricer) {
-            this.shutdown = shutdown;
-            this.pricer = pricer;
-        }
-
-        @Override
-        public UserSession initiator() {
-            throw new RuntimeException("Pricer side is acceptor");
-        }
-
-        @Override
-        public UserSession acceptor(String senderCompID, String targetCompID) {
-            // accept connection en inverse sender and target
-            return new ServerPricerUserSession(targetCompID, senderCompID);
-        }
-
-        private class ServerPricerUserSession implements UserSession {
-
-            private final String senderCompID;
-            private final String targetCompID;
-
-            public ServerPricerUserSession(String senderCompID, String targetCompID) {
-                this.senderCompID = senderCompID;
-                this.targetCompID = targetCompID;
-            }
-
-            public AppMessageReceiver connected(FixMessageValue logon, FixWriter appWriter) {
-                return new AppMessageReceiver() {
-                    @Override
-                    public void messages(FixMessageValue fixMessageValue) {
-                        final Glob message = fixMessageValue.message();
-                        log.info("Got message " + GSonUtils.encode(message) + " " + GSonUtils.encode(fixMessageValue.header()));
-                        if (message.getType() == QuoteRequestType.TYPE) {
-                            final String quoteReqId = message.get(QuoteRequestType.quoteReqID);
-                            pricer.subscribe(quoteReqId, value -> {
-                                appWriter.write(getHeader(),
-                                        QuoteResponseType.TYPE.instantiate()
-                                                .set(QuoteResponseType.quoteRespID, quoteReqId)
-                                                .set(QuoteResponseType.bidPx, value),
-                                        null, false);
-                            });
-                        }
-                    }
-                };
-            }
-
-            @Override
-            public CompletableFuture<Void> logout() {
-                return CompletableFuture.completedFuture(null);
-            }
-
-            @Override
-            public Glob getLogon() {
-                return LogonType.create(1000);
-            }
-
-            @Override
-            public void logonFail() {
-            }
-
-            @Override
-            public MutableGlob getHeader() {
-                return HeaderType.create(senderCompID, targetCompID);
-            }
-        }
-    }
-
-    private static class PriceListenerImpl implements TestUserClientLogonSession.PriceListener {
+    private static class PriceListenerImpl implements ClientLogonSession.PriceListener {
         CompletableFuture<List<String>> actualPrices;
         List<String> prices = new ArrayList<>();
 
