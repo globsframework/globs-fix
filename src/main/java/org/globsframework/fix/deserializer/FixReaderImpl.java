@@ -90,6 +90,7 @@ class FixReaderImpl implements FixReader {
             if (read <= 0) {
                 throw new RuntimeException("Unexpected end of stream");
             }
+            length += read;
         }
         int checkSumId = Utils.getIntAt(pos, pos + 2, buffer);
         if (checkSumId != 10) {
@@ -247,9 +248,6 @@ class FixReaderImpl implements FixReader {
                         equalAt = pos;
                     }
                 } else if (buffer[pos] == sep) {
-                    if (!equalFound) {
-                        throw new RuntimeException("Unexpected separator before equal sign");
-                    }
                     endAt = pos;
                     currentReadId = Utils.getIntAt(startAt, equalAt, buffer);
                     pos++;
@@ -263,9 +261,9 @@ class FixReaderImpl implements FixReader {
                 }
                 System.arraycopy(buffer, startAt, buffer, 0, buffer.length - startAt);
                 equalAt = equalAt - startAt;
+                length = buffer.length - startAt;
                 pos = pos - startAt;
                 startAt = 0;
-                length = 0;
             }
             if (pos != startAt) {
                 final int read = reader.read(buffer, length, buffer.length - pos);

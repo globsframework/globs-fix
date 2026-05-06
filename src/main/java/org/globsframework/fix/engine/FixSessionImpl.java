@@ -76,8 +76,10 @@ public class FixSessionImpl implements FixMessageListener {
             public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
                 lastWriteOut = System.currentTimeMillis();
                 fixWriter.write(header, message, trailer, false);
-                log.info(identSend + " send : [" + jsonOut(header, false) + "," + jsonOut(message, true) + ", " +
-                         jsonOut(trailer, false) + "], reset " + resetSeqNum);
+                if (log.isDebugEnabled()) {
+                    log.debug(identSend + " send : [" + jsonOut(header, false) + "," + jsonOut(message, true) + ", " +
+                              jsonOut(trailer, false) + "], reset " + resetSeqNum);
+                }
             }
         };
         this.selfMsgSeqProvider = selfMsgSeqProvider;
@@ -990,6 +992,7 @@ public class FixSessionImpl implements FixMessageListener {
         // add async call to close in case no response are sent.
         scheduledExecutorService.schedule(() -> {
             closedCompletable.complete(false);
+            shutdown();
         }, option.delayBeforeForceLogout(), TimeUnit.SECONDS);
         return closedCompletable;
     }

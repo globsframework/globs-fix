@@ -24,8 +24,16 @@ public class Client {
     private static final Logger log = LoggerFactory.getLogger(Client.class);
 
     public static void main(String[] args) throws Exception {
-        CompletableFuture<ClientLogonSession> completableFuture = new CompletableFuture<>();
-        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(completableFuture::complete);
+
+        final var notifyNewClient = new ClientUserLogonSessionFactory.NotifyNewClient(){
+            CompletableFuture<ClientLogonSession> completableFuture;
+
+            @Override
+            public void newClient(ClientLogonSession clientLogonSession) {
+                completableFuture.complete(clientLogonSession);
+            }
+        };
+        final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(notifyNewClient);
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(FixServer.class.getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
@@ -39,21 +47,21 @@ public class Client {
 
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        final NoCacheDataAdapt noCacheDataAdapt = new NoCacheDataAdapt();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
                                 (String senderCompID, String targetCompID) -> {
-                                    return noCacheDataAdapt;
+                                    return new NoCacheDataAdapt();
                                 },
                                 serializerProvider,
                                 HeaderDesc.create(HeaderType.TYPE)
                         ),
                         new FixServerTest.LoggerPublish()));
 
+        notifyNewClient.completableFuture = new CompletableFuture<>();
         fixClient.connect();
 
-        final ClientLogonSession clientLogonSession = completableFuture.get(10, TimeUnit.MILLISECONDS);
+        ClientLogonSession clientLogonSession = notifyNewClient.completableFuture.get(10, TimeUnit.MILLISECONDS);
 
         final var priceListener = new ClientLogonSession.PriceListener() {
 
@@ -64,12 +72,12 @@ public class Client {
             public void priceChanged(String str, String p) {
                 log.info("EUR price changed: " + str + " " + p);
                 prices.add(p);
-                if (prices.size() == 10) {
-                    prices = new ArrayList<>();
+                if (prices.size() == 1000) {
                     if (priceFuture != null) {
                         priceFuture.complete(prices);
                         priceFuture = null;
                     }
+                    prices = new ArrayList<>();
                 }
             }
         };
@@ -79,12 +87,22 @@ public class Client {
         System.out.println("Client.main " + priceListener.priceFuture.get(10, TimeUnit.SECONDS));
 
         fixClient.disconnect();
+
+        notifyNewClient.completableFuture = new CompletableFuture<>();
+        fixClient.connect();
+        clientLogonSession = notifyNewClient.completableFuture.get(10, TimeUnit.MILLISECONDS);
+
         priceListener.priceFuture = new CompletableFuture<>();
 
-        fixClient.connect();
+        clientLogonSession.subscribe("EUR", priceListener);
+
 
         System.out.println("Client.main " + priceListener.priceFuture.get(10, TimeUnit.SECONDS));
 
         fixClient.disconnect();
+        executorService.shutdown();
+        scheduledExecutorService.shutdownNow(); 
+        executorService.awaitTermination(100, TimeUnit.SECONDS);
+        scheduledExecutorService.awaitTermination(100, TimeUnit.SECONDS);
     }
 }
