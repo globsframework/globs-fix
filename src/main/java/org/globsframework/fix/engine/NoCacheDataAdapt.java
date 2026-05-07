@@ -6,7 +6,7 @@ import org.globsframework.fix.serializer.FixWriterBuilder;
 import org.globsframework.fix.serializer.MsgSeqProvider;
 import org.globsframework.fix.serializer.Publish;
 
-class NoCacheDataAdapt implements FixInfoProvider.DataAdapt {
+public class NoCacheDataAdapt implements FixInfoProvider.DataAdapt {
     private final MsgSeqProvider msgSeqProvider = new BasicMsgSeqProvider();
     private final ClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
 

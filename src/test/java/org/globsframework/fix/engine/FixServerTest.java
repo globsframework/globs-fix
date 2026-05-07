@@ -2,23 +2,17 @@ package org.globsframework.fix.engine;
 
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
-import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.Ref;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
-import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.dictionary.FixModel;
-import org.globsframework.fix.dictionary.admin.LogonType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
-import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.Publish;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
-import org.globsframework.json.GSonUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,11 +79,11 @@ class FixServerTest {
 
         fixServer = createFixServer(acceptorDataAdapt);
 
-        executorService.submit(fixServer::processConnections);
+        executorService.submit(fixServer::acceptAsAcceptor);
 
         final int port = fixServer.getPort();
 
-        Ref<CompletableFuture<ClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
+        Ref<CompletableFuture<ClientUserSession>> testUserClientLogonSessionRef = new Ref<>();
         final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(clientLogonSession -> {
             testUserClientLogonSessionRef.get().complete(clientLogonSession);
         });
@@ -101,9 +95,9 @@ class FixServerTest {
         final PriceListenerImpl priceListener = new PriceListenerImpl();
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -111,14 +105,14 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
         priceListener.actualPrices = new CompletableFuture<>();
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -126,7 +120,7 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
 
         System.out.println("test GAP in client");
@@ -134,9 +128,9 @@ class FixServerTest {
         clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -144,7 +138,7 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
 
         System.out.println("test GAP on server side");
@@ -152,9 +146,9 @@ class FixServerTest {
         serverSeqMsgId.reset(serverSeqMsgId.current() - 4);
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -162,7 +156,7 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
 
         System.out.println("test GAP on server and client side");
@@ -171,9 +165,9 @@ class FixServerTest {
         clientSeqMsgId.reset(clientSeqMsgId.current() - 4);
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -181,7 +175,7 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
         fixClient = null;
     }
@@ -194,11 +188,11 @@ class FixServerTest {
 
         fixServer = createFixServer(acceptorDataAdapt);
 
-        executorService.submit(fixServer::processConnections);
+        executorService.submit(fixServer::acceptAsAcceptor);
 
         final int port = fixServer.getPort();
 
-        Ref<CompletableFuture<ClientLogonSession>> testUserClientLogonSessionRef = new Ref<>();
+        Ref<CompletableFuture<ClientUserSession>> testUserClientLogonSessionRef = new Ref<>();
         final ClientUserLogonSessionFactory userLogonSessionFactory = new ClientUserLogonSessionFactory(clientLogonSession -> {
             testUserClientLogonSessionRef.get().complete(clientLogonSession);
         });
@@ -210,9 +204,9 @@ class FixServerTest {
         final PriceListenerImpl priceListener = new PriceListenerImpl();
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
 
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -220,16 +214,16 @@ class FixServerTest {
             System.out.println("Prices: " + list);
             Assertions.assertEquals(3, list.size());
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
 
         serverSeqMsgId.reset(serverSeqMsgId.current() - 2);
         priceListener.actualPrices = new CompletableFuture<>();
         {
             testUserClientLogonSessionRef.set(new CompletableFuture<>());
-            fixClient.connect();
+            final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
 
-            final ClientLogonSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
+            final ClientUserSession clientLogonSession = testUserClientLogonSessionRef.get().get(10, TimeUnit.MILLISECONDS);
             Assertions.assertEquals(3, clientLogonSession.checkReceived(3));
             priceListener.actualPrices = new CompletableFuture<>();
             clientLogonSession.subscribe("EUR", priceListener);
@@ -239,31 +233,27 @@ class FixServerTest {
                 Assertions.assertEquals(3, list.size());
             }
 
-            fixClient.disconnect().join();
+            fixLogoutCompletableFuture.resultNow().close();
         }
         fixClient = null;
     }
 
     private FixServer createFixServer(FixInfoProvider.DataAdapt acceptorDataAdapt) throws IOException {
-        final NewAcceptorFixConnectionImpl acceptorFixConnection =
-                new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
-                        serializerProvider,
+        return new FixServer("0.0.0.0", 0,
+                new FixConnectionFactory(new LoggerPublish(), executorService, scheduledExecutorService,
+                        new ServerUserLogonSessionFactory(scheduledExecutorService, 3, 100),
                         (String senderCompID, String targetCompID) -> {
                             return acceptorDataAdapt;
-                        },
-                        new ServerUserLogonSessionFactory(scheduledExecutorService, 3, 100));
-        return new FixServer("0.0.0.0", 0, new FixConnectionFactory(acceptorFixConnection, new LoggerPublish()));
+                        },serializerProvider, headerDesc));
     }
 
     private FixClient createFixClient(int port, ClientUserLogonSessionFactory userLogonSessionFactory, NoCacheDataAdapt initiatorDataAdapt) {
         return new FixClient("localhost", port,
-                new FixConnectionFactory(
-                        new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
+                new FixConnectionFactory(new LoggerPublish(),
+                        executorService, scheduledExecutorService, userLogonSessionFactory,
                                 (String senderCompID, String targetCompID) -> initiatorDataAdapt,
                                 serializerProvider,
-                                HeaderDesc.create(HeaderType.TYPE)
-                        ),
-                        new LoggerPublish()));
+                                HeaderDesc.create(HeaderType.TYPE)));
     }
 
     interface Pricer {

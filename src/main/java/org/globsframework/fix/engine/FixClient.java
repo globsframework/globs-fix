@@ -11,22 +11,23 @@ import java.util.concurrent.TimeoutException;
 public class FixClient {
     private final String host;
     private final int port;
-    private final OnNewConnection onNewConnection;
-    private CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture;
+    private final FixConnectionFactory fixConnectionFactory;
 
-    public FixClient(String host, int port, OnNewConnection onNewConnection) {
+    public FixClient(String host, int port, FixConnectionFactory fixConnectionFactory) {
         this.host = host;
         this.port = port;
-        this.onNewConnection = onNewConnection;
+        this.fixConnectionFactory = fixConnectionFactory;
     }
 
-    public void connect() throws IOException {
+    public CompletableFuture<FixLogout> connectAsConnector() throws IOException {
         Socket socket = new Socket();
         socket.connect(new InetSocketAddress(host, port));
-        logoutCompletableFuture = onNewConnection.newConnection(socket);
+        return fixConnectionFactory.newConnection(socket, fixConnectionFactory.createAcceptor());
     }
 
-    public CompletableFuture<Boolean> disconnect() throws ExecutionException, InterruptedException, TimeoutException {
-        return logoutCompletableFuture.get(2, TimeUnit.SECONDS).close();
+    public CompletableFuture<FixLogout> connectAsInitiator(String senderComp, String targetComp) throws IOException {
+        Socket socket = new Socket();
+        socket.connect(new InetSocketAddress(host, port));
+        return fixConnectionFactory.newConnection(socket, fixConnectionFactory.createInitiator(senderComp, targetComp));
     }
 }

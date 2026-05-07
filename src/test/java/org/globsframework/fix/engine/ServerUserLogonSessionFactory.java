@@ -14,8 +14,7 @@ public class ServerUserLogonSessionFactory implements UserLogonSessionFactory {
     }
 
     @Override
-    public UserLogonSession create(Shutdown shutdown) {
-        return new ServerUserLogonSession(shutdown,
-                new FixServerTest.PricerImpl(scheduledExecutorService, maxElementToSend, delay));
+    public UserSession create(String senderCompId, String targetCompId, Shutdown shutdown) {
+        return new ServerPricerUserSession(senderCompId, targetCompId, shutdown, new FixServerTest.PricerImpl(scheduledExecutorService, maxElementToSend, delay));
     }
 }

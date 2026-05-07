@@ -2,9 +2,7 @@ package org.globsframework.fix.engine;
 
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.deserializer.ByteReader;
-import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
-import org.globsframework.fix.deserializer.FixReader;
-import org.globsframework.fix.serializer.*;
+import org.globsframework.fix.serializer.Publish;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,75 +11,42 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
-public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFixConnection {
+public class NewAcceptorFixConnectionImpl implements NewFixConnection {
     private static final Logger log = LoggerFactory.getLogger(NewAcceptorFixConnectionImpl.class);
-    public final ExecutorService executorService;
-    public final ScheduledExecutorService scheduledExecutorService;
+    private final ExecutorService executorService;
     private final int sendCompID;
     private final int targetCompID;
     private final byte sep;
-    private final SerializerProvider serializerProvider;
-    private final FixInfoProvider fixInfoProvider;
-    private final UserLogonSessionFactory serverUserLogonSessionFactory;
-    private volatile boolean isShutdown;
-
+    private FixEngineInit fixEngineInit;
 
     public NewAcceptorFixConnectionImpl(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
                                         int sendCompID, int targetCompID, byte sep,
                                         SerializerProvider serializerProvider, FixInfoProvider fixInfoProvider,
                                         UserLogonSessionFactory serverUserLogonSessionFactory) {
         this.executorService = executorService;
-        this.scheduledExecutorService = scheduledExecutorService;
         this.sendCompID = sendCompID;
         this.targetCompID = targetCompID;
         this.sep = sep;
-        this.serializerProvider = serializerProvider;
-        this.fixInfoProvider = fixInfoProvider;
-        this.serverUserLogonSessionFactory = serverUserLogonSessionFactory;
+        fixEngineInit = new FixEngineInit(executorService, scheduledExecutorService,
+                fixInfoProvider, serializerProvider, serverUserLogonSessionFactory);
     }
 
     @Override
-    public CompletableFuture<FixConnectionFactory.FixLogout> onNew(ByteReader byteReader, Publish publish, Shutdown shutdown) {
+    public CompletableFuture<FixLogout> onNew(ByteReader byteReader, Publish publish, Shutdown shutdown) {
         log.info("New session to accept.");
-        final CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture = new CompletableFuture<>();
+        final CompletableFuture<FixLogout> logoutCompletableFuture = new CompletableFuture<>();
 
         // first message, we look for the targetComp and senderComp to identify the session
         // and it's dictionary.
         executorService.execute(() -> {
-
-            final HeaderFixInfo result = getHeaderFixInfo(byteReader);
-
-            final FixInfoProvider.DataAdapt dataAdapt = fixInfoProvider.getCachedData(result.senderCompID(), result.targetCompID());
-            final DeserializerFixReaderBuilder readerBuilder = serializerProvider.getReader(result.senderCompID(), result.targetCompID());
-            final HeaderDesc headerDesc = serializerProvider.getHeaderDesc(result.senderCompID(), result.targetCompID());
-            final FixReader reader = readerBuilder.createReader(byteReader, result.buffer(), result.len());
-            final SerializerFixWriterBuilder writerBuilder = serializerProvider.getWriter(result.senderCompID(), result.targetCompID());
-
-            FixWriter writer = dataAdapt.createWriter(publish, writerBuilder);
-            final UserLogonSession userLogonSession = serverUserLogonSessionFactory.create(shutdown);
-            final FixSessionImpl fixSession = new FixSessionImpl(scheduledExecutorService, writer,
-                    userLogonSession.acceptor(result.senderCompID(), result.targetCompID()),
-                    dataAdapt.clientSeqMsgId(),
-                    dataAdapt.getSelfMsgSeqProvider(),
-                    dataAdapt.getCachedData(), headerDesc, shutdown, false,
-                    FixSessionImpl.Option.def());
-            logoutCompletableFuture.complete(new FixConnectionFactory.FixLogout() {
-                @Override
-                public void registerOnClosed(Runnable runnable) {
-                    fixSession.registerOnClosed(runnable);
-                }
-
-                @Override
-                public CompletableFuture<Boolean> close() {
-                    return fixSession.logout();
-                }
-            });
-            executorService.execute(Utils.loopRead(fixSession, reader));
+            final FixEngineInit.HeaderFixInfo result = getHeaderFixInfo(byteReader);
+            fixEngineInit.initFixEngine(byteReader, publish, shutdown, result, logoutCompletableFuture, false);
         });
         return logoutCompletableFuture;
     }
 
-    private HeaderFixInfo getHeaderFixInfo(ByteReader byteReader) {
+
+    private FixEngineInit.HeaderFixInfo getHeaderFixInfo(ByteReader byteReader) {
         byte[] buffer = new byte[1024];
         int offset = 0;
         int len = 0;
@@ -116,10 +81,6 @@ public class NewAcceptorFixConnectionImpl implements FixConnectionFactory.NewFix
                 }
             }
         }
-        return new HeaderFixInfo(buffer, len, targetCompID, senderCompID);
+        return new FixEngineInit.HeaderFixInfo(buffer, len, senderCompID, targetCompID);
     }
-
-    private record HeaderFixInfo(byte[] buffer, int len, String targetCompID, String senderCompID) {
-    }
-
 }

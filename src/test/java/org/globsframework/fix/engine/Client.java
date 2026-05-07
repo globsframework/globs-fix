@@ -26,10 +26,10 @@ public class Client {
     public static void main(String[] args) throws Exception {
 
         final var notifyNewClient = new ClientUserLogonSessionFactory.NotifyNewClient(){
-            CompletableFuture<ClientLogonSession> completableFuture;
+            CompletableFuture<ClientUserSession> completableFuture;
 
             @Override
-            public void newClient(ClientLogonSession clientLogonSession) {
+            public void newClient(ClientUserSession clientLogonSession) {
                 completableFuture.complete(clientLogonSession);
             }
         };
@@ -49,19 +49,14 @@ public class Client {
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
-                        new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
-                                (String senderCompID, String targetCompID) -> {
-                                    return new NoCacheDataAdapt();
-                                },
-                                serializerProvider,
-                                HeaderDesc.create(HeaderType.TYPE)
-                        ),
-                        new FixServerTest.LoggerPublish()));
+                        new FixServerTest.LoggerPublish(), executorService, scheduledExecutorService, userLogonSessionFactory, (senderCompID, targetCompID) -> new NoCacheDataAdapt(),
+                        serializerProvider, HeaderDesc.create(HeaderType.TYPE)));
 
         notifyNewClient.completableFuture = new CompletableFuture<>();
-        fixClient.connect();
+        CompletableFuture<FixLogout> fixLogoutCompletableFuture =
+                fixClient.connectAsInitiator("AF", "BNP");
 
-        ClientLogonSession clientLogonSession = notifyNewClient.completableFuture.get(10, TimeUnit.MILLISECONDS);
+        ClientUserSession clientLogonSession = notifyNewClient.completableFuture.get(10, TimeUnit.MILLISECONDS);
 
         final var priceListener = new ClientLogonSession.PriceListener() {
 
@@ -86,10 +81,10 @@ public class Client {
 
         System.out.println("Client.main " + priceListener.priceFuture.get(10, TimeUnit.SECONDS));
 
-        fixClient.disconnect();
+        fixLogoutCompletableFuture.resultNow().close();
 
         notifyNewClient.completableFuture = new CompletableFuture<>();
-        fixClient.connect();
+        fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
         clientLogonSession = notifyNewClient.completableFuture.get(10, TimeUnit.MILLISECONDS);
 
         priceListener.priceFuture = new CompletableFuture<>();
@@ -99,7 +94,7 @@ public class Client {
 
         System.out.println("Client.main " + priceListener.priceFuture.get(10, TimeUnit.SECONDS));
 
-        fixClient.disconnect();
+        fixLogoutCompletableFuture.resultNow().close();
         executorService.shutdown();
         scheduledExecutorService.shutdownNow(); 
         executorService.awaitTermination(100, TimeUnit.SECONDS);

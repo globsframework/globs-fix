@@ -10,30 +10,44 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
-public class FixConnectionFactory implements OnNewConnection {
+public class FixConnectionFactory {
     private static final Logger log = LoggerFactory.getLogger(FixConnectionFactory.class);
-    private final NewFixConnection newFixConnection;
     private final Publish decorate;
+    private final ExecutorService executorService;
+    private final ScheduledExecutorService scheduledExecutorService;
+    private final UserLogonSessionFactory userLogonSessionFactory;
+    private final FixInfoProvider fixInfoProvider;
+    private final SerializerProvider serializerProvider;
+    private final HeaderDesc headerDesc;
 
-    public FixConnectionFactory(NewFixConnection newFixConnection, Publish decorate) {
-        this.newFixConnection = newFixConnection;
+    public FixConnectionFactory(Publish decorate, ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
+                                UserLogonSessionFactory userLogonSessionFactory,
+                                FixInfoProvider fixInfoProvider,
+                                SerializerProvider serializerProvider,
+                                HeaderDesc headerDesc) {
         this.decorate = decorate;
+        this.executorService = executorService;
+        this.scheduledExecutorService = scheduledExecutorService;
+        this.userLogonSessionFactory = userLogonSessionFactory;
+        this.fixInfoProvider = fixInfoProvider;
+        this.serializerProvider = serializerProvider;
+        this.headerDesc = headerDesc;
     }
 
-
-    public interface FixLogout {
-        void registerOnClosed(Runnable runnable);
-
-        CompletableFuture<Boolean> close();
+    public NewFixConnection createAcceptor() {
+        return new NewAcceptorFixConnectionImpl(executorService, scheduledExecutorService, 49, 56, (byte) 0x1,
+                serializerProvider, fixInfoProvider, userLogonSessionFactory);
     }
 
-    public interface NewFixConnection {
-        CompletableFuture<FixLogout> onNew(ByteReader reader, Publish writer, Shutdown shutdown);
+    public NewFixConnection createInitiator(String senderComp, String targetComp) {
+        return new NewInitiatorFixConnectionImpl(executorService, scheduledExecutorService, userLogonSessionFactory,
+                fixInfoProvider, serializerProvider, headerDesc, senderComp, targetComp);
     }
 
-    @Override
-    public CompletableFuture<FixConnectionFactory.FixLogout> newConnection(Socket socket) {
+    public CompletableFuture<FixLogout> newConnection(Socket socket, NewFixConnection newFixConnection) {
         final InputStream inputStream;
         try {
             inputStream = socket.getInputStream();
@@ -95,10 +109,10 @@ public class FixConnectionFactory implements OnNewConnection {
                                    Publish p2) implements Publish {
 
         @Override
-            public void publish(byte[] data, int offset, int length) {
-                p1.publish(data, offset, length);
-                p2.publish(data, offset, length);
-            }
+        public void publish(byte[] data, int offset, int length) {
+            p1.publish(data, offset, length);
+            p2.publish(data, offset, length);
         }
+    }
 
 }

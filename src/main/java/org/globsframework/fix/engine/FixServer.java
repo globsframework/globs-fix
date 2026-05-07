@@ -11,23 +11,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 public class FixServer {
     private static final Logger log = LoggerFactory.getLogger(FixServer.class);
     private final String listenInterface;
     private int port;
-    private final OnNewConnection onNewConnection;
+    private NewFixConnection newFixConnection;
     private final ServerSocket serverSocket;
     private CompletableFuture<Boolean> running = new CompletableFuture<>();
     private volatile boolean stopRequested = false;
     private final AtomicBoolean stoped = new AtomicBoolean();
-    private List<FixConnectionFactory.FixLogout> connections = new ArrayList<FixConnectionFactory.FixLogout>();
+    private List<FixLogout> connections = new ArrayList<FixLogout>();
+    private FixConnectionFactory fixConnectionFactory;
 
-    public FixServer(String listenInterface, int port, OnNewConnection onNewConnection) throws IOException {
+    public FixServer(String listenInterface, int port, FixConnectionFactory fixConnectionFactory) throws IOException {
         this.listenInterface = listenInterface;
         this.port = port;
-        this.onNewConnection = onNewConnection;
+        this.fixConnectionFactory = fixConnectionFactory;
         serverSocket = new ServerSocket();
     }
 
@@ -36,7 +36,19 @@ public class FixServer {
         return port;
     }
 
-    public void init() {
+    public void acceptAsAcceptor() {
+        newFixConnection = fixConnectionFactory.createAcceptor();
+        init();
+        processConnections();
+    }
+
+    public void acceptAsInitiator(String senderComp, String targetComp) {
+        newFixConnection = fixConnectionFactory.createInitiator(senderComp, targetComp);
+        init();
+        processConnections();
+    }
+
+    private void init() {
         try {
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(listenInterface, port));
@@ -50,15 +62,15 @@ public class FixServer {
         }
     }
 
-    public void processConnections() {
+    private void processConnections() {
         try {
-            init();
             while (!stopRequested) {
                 final Socket socket = serverSocket.accept();
                 socket.setTcpNoDelay(true);
                 final int localPort = socket.getLocalPort();
                 log.debug("Accepted connection on port " + localPort);
-                final CompletableFuture<FixConnectionFactory.FixLogout> logoutCompletableFuture = onNewConnection.newConnection(socket);
+                final CompletableFuture<FixLogout> logoutCompletableFuture =
+                        fixConnectionFactory.newConnection(socket, newFixConnection);
                 logoutCompletableFuture.thenAccept(fixLogout -> {
                     fixLogout.registerOnClosed(() -> {
                         connections.remove(fixLogout);
@@ -92,7 +104,7 @@ public class FixServer {
                 throw new RuntimeException(e);
             }
         }
-        for (FixConnectionFactory.FixLogout connection : connections) {
+        for (FixLogout connection : connections) {
             connection.close();
         }
     }

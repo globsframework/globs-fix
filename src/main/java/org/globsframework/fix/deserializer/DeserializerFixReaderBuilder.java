@@ -175,13 +175,15 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
 
     @Override
     public FixReader createReader(ByteReader reader) {
-        return new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, (byte) 0x1);
+        return createReader(reader, null, 0);
     }
 
     @Override
     public FixReader createReader(ByteReader reader, byte[] initialBuffer, int len) {
         final FixReaderImpl fixReader = new FixReaderImpl(reader, messageFixStruct, fixHeader, fixTrailer, fixModel, (byte) 0x1);
-        fixReader.initBuffer(initialBuffer, len);
+        if (initialBuffer != null && len != 0) {
+            fixReader.initBuffer(initialBuffer, len);
+        }
         return fixReader;
     }
 
