@@ -124,7 +124,7 @@ class FixReaderImpl implements FixReader {
         }
         int msgLenId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(msgLenId, 9);
-        messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer);
+        messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer) + 1; // also read the last 0x1 before trailer.
         msgReadLen = 0;
         if (!readNext()) {
             return null;

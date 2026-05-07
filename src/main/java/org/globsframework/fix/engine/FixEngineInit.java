@@ -47,6 +47,9 @@ class FixEngineInit {
                 dataAdapt.getSelfMsgSeqProvider(),
                 dataAdapt.getCachedData(), headerDesc, shutdown, isInitiator,
                 FixSessionImpl.Option.def());
+
+        executorService.execute(Utils.loopRead(fixSession, reader));
+
         logoutCompletableFuture.complete(new FixLogout() {
             @Override
             public void registerOnClosed(Runnable runnable) {
@@ -58,7 +61,6 @@ class FixEngineInit {
                 return fixSession.logout();
             }
         });
-        executorService.execute(Utils.loopRead(fixSession, reader));
     }
 
     public record HeaderFixInfo(byte[] buffer, int len, String senderCompID, String targetCompID) {

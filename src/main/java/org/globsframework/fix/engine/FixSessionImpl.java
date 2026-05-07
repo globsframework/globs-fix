@@ -1002,7 +1002,10 @@ public class FixSessionImpl implements FixMessageListener {
         heartbeatInMSOut = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
-        logon.set(LogonType.nextExpectedMsgSeqNum, clientSeqMsgId.current() + 1);
+        final int current = clientSeqMsgId.current();
+        if (current != 0) {
+            logon.set(LogonType.nextExpectedMsgSeqNum, current + 1);
+        }
         final MutableGlob header = userSession.getHeader().duplicate();
         writer.write(header, logon, null, false);
         return header.get(headerDesc.seqNumField());

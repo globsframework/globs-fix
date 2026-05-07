@@ -59,7 +59,7 @@ public class FixWriterImpl implements FixWriter {
             int endAt = write(trailer, at);
 
             final byte[] msgType = typeToMessageType.get(message.getType());
-            int len = endAt - OFFSET + 4 + msgType.length; // add
+            int len = endAt - OFFSET + 4 + msgType.length - 1; // -1 for last 0x1
 
             final int lenInBytes = Utils.len(len);
 
