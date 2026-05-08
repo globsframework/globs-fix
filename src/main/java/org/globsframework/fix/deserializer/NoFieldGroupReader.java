@@ -20,7 +20,7 @@ class NoFieldGroupReader implements GroupReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
+    public boolean isSet(Glob data, int currentReadId) {
         return false;
     }
 }

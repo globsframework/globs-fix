@@ -7,4 +7,6 @@ non-sealed interface ComponentReader extends FieldReader {
     FixStruct getComponent();
 
     void update(Glob glob, MutableGlob data);
+
+    MutableGlob get(MutableGlob data);
 }

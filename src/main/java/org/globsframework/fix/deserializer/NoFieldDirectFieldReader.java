@@ -1,5 +1,6 @@
 package org.globsframework.fix.deserializer;
 
+import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
 class NoFieldDirectFieldReader implements DirectFieldReader {
@@ -8,7 +9,7 @@ class NoFieldDirectFieldReader implements DirectFieldReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
+    public boolean isSet(Glob data, int currentReadId) {
         return false;
     }
 }

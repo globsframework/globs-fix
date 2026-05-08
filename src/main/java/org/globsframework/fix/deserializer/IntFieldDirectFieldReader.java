@@ -1,6 +1,7 @@
 package org.globsframework.fix.deserializer;
 
 import org.globsframework.core.metamodel.fields.IntegerField;
+import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 
@@ -12,7 +13,7 @@ class IntFieldDirectFieldReader implements DirectFieldReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
+    public boolean isSet(Glob data, int currentReadId) {
         return data.isSet(integerField);
     }
 

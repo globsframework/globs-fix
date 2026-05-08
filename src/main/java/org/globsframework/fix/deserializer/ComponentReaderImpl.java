@@ -24,7 +24,13 @@ class ComponentReaderImpl implements ComponentReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
-        return data.isSet(globField);
+    public MutableGlob get(MutableGlob data) {
+        return data.getMutable(globField);
+    }
+
+    @Override
+    public boolean isSet(Glob data, int currentReadId) {
+        return data.isSet(globField) &&
+               fixStruct.getFieldReader(currentReadId).isSet(data.get(globField), currentReadId);
     }
 }

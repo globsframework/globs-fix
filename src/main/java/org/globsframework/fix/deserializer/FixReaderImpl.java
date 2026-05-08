@@ -46,15 +46,15 @@ class FixReaderImpl implements FixReader {
         this.fixModel = fixModel;
         this.sep = sep;
         msgTypeField = header.getType() != null ? Arrays.stream(header.getType().getFields())
-                .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
-                        .map(FixFieldType.name).filter(s -> s.equals("MsgType")).isPresent())
-                .findFirst().map(Field::asStringField)
-                .orElse(null) : null;
+                                                  .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
+                                                               .map(FixFieldType.name).filter(s -> s.equals("MsgType")).isPresent())
+                                                  .findFirst().map(Field::asStringField)
+                                                  .orElse(null) : null;
         checkSumField = trailer.getType() != null ? Arrays.stream(trailer.getType().getFields())
-                .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
-                        .map(FixFieldType.name).filter(s -> s.equals("CheckSum")).isPresent())
-                .findFirst().map(Field::asIntegerField)
-                .orElse(null) : null;
+                                                    .filter(f -> f.findOptAnnotation(FixFieldType.UNIQUE_KEY)
+                                                                 .map(FixFieldType.name).filter(s -> s.equals("CheckSum")).isPresent())
+                                                    .findFirst().map(Field::asIntegerField)
+                                                    .orElse(null) : null;
     }
 
     @Override
@@ -79,13 +79,13 @@ class FixReaderImpl implements FixReader {
     }
 
     private void readChecksum(int check) {
-        // we read the 6 octets for checkum (2 octets) = value (3 octets)
-        if (pos + 6 > buffer.length) {
+        // we read the 7 octets for checkum (2 octets) = value (3 octets) + 0x1
+        if (pos + 7 > buffer.length) {
             System.arraycopy(buffer, pos, buffer, 0, buffer.length - pos);
             length = length - pos;
             pos = 0;
         }
-        while (pos + 5 > length) {
+        while (pos + 6 > length) {
             int read = reader.read(buffer, length, buffer.length - length);
             if (read <= 0) {
                 throw new RuntimeException("Unexpected end of stream");
@@ -100,7 +100,7 @@ class FixReaderImpl implements FixReader {
         if (checkSum != check) {
             throw new RuntimeException("Invalid checksum " + checkSum + " != " + check);
         }
-        pos += 6;
+        pos += 7;
     }
 
     public Glob readHeader() {
@@ -124,7 +124,7 @@ class FixReaderImpl implements FixReader {
         }
         int msgLenId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(msgLenId, 9);
-        messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer) + 1; // also read the last 0x1 before trailer.
+        messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer);
         msgReadLen = 0;
         if (!readNext()) {
             return null;
@@ -155,7 +155,7 @@ class FixReaderImpl implements FixReader {
             skip(fixStruct);
             return null;
         } else {
-            return read(fixStruct, type);
+            return read(fixStruct, type.instantiate());
         }
     }
 
@@ -190,20 +190,29 @@ class FixReaderImpl implements FixReader {
         }
     }
 
-    private MutableGlob read(FixStruct fixStruct, GlobType type) {
-        final MutableGlob data = type.instantiate();
+    private MutableGlob read(FixStruct fixStruct, MutableGlob data) {
         while (currentReadId != -1) {
             final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
             if (fieldReader == null) { // do not belong to this object, so it belong to one ot it's parent
                 return data;
             }
-            if (fieldReader.isSet(data)) {
+            if (fieldReader.isSet(data, currentReadId)) {
                 return data;
             }
             switch (fieldReader) {
                 case ComponentReader componentReader -> {
                     final FixStruct component = componentReader.getComponent();
-                    componentReader.update(readData(component), data);
+                    MutableGlob sub = componentReader.get(data);
+                    if (sub != null) {// this code is to protect against badly ordered fields
+                        componentReader.update(read(component, sub), data);
+                    } else {
+                        final GlobType type = component.getType();
+                        if (type != null) {
+                            componentReader.update(read(component, type.instantiate()), data);
+                        } else {
+                            skip(component);
+                        }
+                    }
                 }
                 case DirectFieldReader directFieldReader -> {
                     directFieldReader.read(equalAt + 1, endAt, buffer, data);
@@ -271,8 +280,7 @@ class FixReaderImpl implements FixReader {
                     throw new RuntimeException("Unexpected end of stream");
                 }
                 length += read;
-            }
-            else {
+            } else {
                 final int read = reader.read(buffer, 0, buffer.length);
                 if (read == -1) {
                     throw new RuntimeException("client disconnected");

@@ -84,7 +84,7 @@ class FixReaderBuilderTest {
 
             assertNotNull(read.trailer());
             assertEquals("sign", read.trailer().get(TrailerType.Signature));
-            assertEquals(129, read.trailer().get(TrailerType.CheckSum));
+            assertEquals(130, read.trailer().get(TrailerType.CheckSum));
         }
         {
             final FixMessageValue read = reader.read();
@@ -96,7 +96,7 @@ class FixReaderBuilderTest {
 
             assertNotNull(read.trailer());
             assertEquals("sign", read.trailer().get(TrailerType.Signature));
-            assertEquals(139, read.trailer().get(TrailerType.CheckSum));
+            assertEquals(140, read.trailer().get(TrailerType.CheckSum));
         }
     }
 

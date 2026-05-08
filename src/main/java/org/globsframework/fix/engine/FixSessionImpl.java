@@ -368,30 +368,17 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     class InitiatorSessionState extends AbstractSessionState {
-        private final ScheduledFuture<?> schedule;
         private final AtomicBoolean logon = new AtomicBoolean(false);
         private Set<Integer> logonSendId = new HashSet<>();
-        int logonSendCount;
 
         public InitiatorSessionState() {
             final int seqNum = sentLogon();
             logonSendId.add(seqNum);
-            if (option.delayBeforeResendLogonInS > 0) {
-                logonSendCount = 1;
-                schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
-            }
-            else {
-                logonSendCount = -1;
-                schedule = null;
-            }
         }
 
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             logon.set(true);
-            if (schedule != null) {
-                schedule.cancel(false);
-            }
             consumeSeqNum();
             connect(fixMessageValue);
             managedInHeartBeat(fixMessageValue);
@@ -434,31 +421,12 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public synchronized SessionState gapState(int seqNum) {
             endSelf();
-            return new WaitForLogonGapSessionState(logonSendCount, seqNum);
+            return new WaitForLogonGapSessionState(seqNum);
         }
 
         private void endSelf() {
-            if (logonSendCount >= -1 && schedule != null) {
-                logonSendCount = -1;
-                schedule.cancel(false);
-            }
         }
 
-        synchronized private void retryLogon() {
-            if (schedule.isCancelled()) {
-                return;
-            }
-            if (logon.get()) {
-                return;
-            }
-            if (option.maxRetryLogon == -1 || logonSendCount > option.maxRetryLogon) {
-                shutdown();
-            } else {
-                int seqNum = sentLogon();
-                logonSendId.add(seqNum);
-                logonSendCount++;
-            }
-        }
         @Override
         public String toString() {
             return "InitiatorSessionState";
@@ -468,7 +436,6 @@ public class FixSessionImpl implements FixMessageListener {
 
     private class WaitForLogonGapSessionState implements SessionState {
         private int logonCount;
-        private final ScheduledFuture<?> schedule;
         protected final int requestSendSeqNum;
         protected final int firstReceivedSeqNum;
         protected int nextExpectedFuturSeqNum;
@@ -477,14 +444,7 @@ public class FixSessionImpl implements FixMessageListener {
         protected List<FixMessageValue> pastAppMessage = new ArrayList<>();
         protected int firstGapInGap = -1;
 
-        public WaitForLogonGapSessionState(int logonCount, int firstReceivedSeqNum) {
-            if (option.delayBeforeResendLogonInS > 0 && logonCount > 0) {
-                this.logonCount = logonCount;
-                schedule = scheduledExecutorService.schedule(this::retryLogon, option.delayBeforeResendLogonInS, TimeUnit.SECONDS);
-            } else {
-                this.logonCount = -1;
-                schedule = null;
-            }
+        public WaitForLogonGapSessionState(int firstReceivedSeqNum) {
             this.nextExpectedPastSeqNum = expectedNext;
             this.firstReceivedSeqNum = firstReceivedSeqNum;
             log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
@@ -492,18 +452,6 @@ public class FixSessionImpl implements FixMessageListener {
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
             nextExpectedFuturSeqNum = firstReceivedSeqNum + 1; // the message is received
-        }
-
-        synchronized private void retryLogon() {
-            if (logonCount == -1 || schedule.isCancelled()) {
-                return;
-            }
-            if (option.maxRetryLogon == -1 || logonCount > option.maxRetryLogon) {
-                shutdown();
-            } else {
-                sentLogon();
-                logonCount++;
-            }
         }
 
         @Override

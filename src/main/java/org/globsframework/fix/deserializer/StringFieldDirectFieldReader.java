@@ -1,6 +1,7 @@
 package org.globsframework.fix.deserializer;
 
 import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
 class StringFieldDirectFieldReader implements DirectFieldReader {
@@ -16,7 +17,7 @@ class StringFieldDirectFieldReader implements DirectFieldReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
+    public boolean isSet(Glob data, int currentReadId) {
         return data.isSet(field);
     }
 }

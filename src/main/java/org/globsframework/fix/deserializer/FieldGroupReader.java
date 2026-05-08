@@ -24,7 +24,19 @@ class FieldGroupReader implements GroupReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
-        return data.isSet(globArrayField);
+    public boolean isSet(Glob data, int currentReadId) {
+        final boolean set = data.isSet(globArrayField);
+        if (!set) {
+            return false;
+        }
+        final Glob[] globs = data.get(globArrayField);
+        if (globs.length == 0) {
+            return false;
+        }
+        final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
+        if (fieldReader == null) {
+            return true; // for field 'no' number of elements in group we force isSet = true
+        }
+        return fieldReader.isSet(globs[globs.length - 1], currentReadId);
     }
 }

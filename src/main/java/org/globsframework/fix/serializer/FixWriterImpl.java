@@ -59,7 +59,7 @@ public class FixWriterImpl implements FixWriter {
             int endAt = write(trailer, at);
 
             final byte[] msgType = typeToMessageType.get(message.getType());
-            int len = endAt - OFFSET + 4 + msgType.length - 1; // -1 for last 0x1
+            int len = endAt - OFFSET + 4 + msgType.length; // add
 
             final int lenInBytes = Utils.len(len);
 
@@ -106,6 +106,7 @@ public class FixWriterImpl implements FixWriter {
                 buffer[at++] = (byte) ('0' + (s / 10) % 10);
                 buffer[at++] = (byte) ('0' + s % 10);
             }
+            buffer[at++] = 0x1;
             publish.publish(buffer, startAt, at - startAt);
         } catch (Exception e) {
             // can be an array out of bound or a socket write error

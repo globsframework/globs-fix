@@ -20,7 +20,12 @@ class NoFieldComponentReaderImpl implements ComponentReader {
     }
 
     @Override
-    public boolean isSet(MutableGlob data) {
+    public MutableGlob get(MutableGlob data) {
+        return null;
+    }
+
+    @Override
+    public boolean isSet(Glob data, int currentReadId) {
         return false;
     }
 }
