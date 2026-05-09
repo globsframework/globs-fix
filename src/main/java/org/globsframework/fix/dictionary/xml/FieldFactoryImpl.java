@@ -24,8 +24,24 @@ public class FieldFactoryImpl implements FieldFactory {
     @Override
     public ComponentBuilder complete() {
         return new ComponentBuilder() {
-            Map<String, FixComponent> components = new HashMap<>();
-            Map<String, FixComponentImpl> wanted = new HashMap<>();
+            FieldContainerBuilderImpl.GetComponent getComponent = new FieldContainerBuilderImpl.GetComponent() {
+                @Override
+                public FixComponent get(String name) {
+                    final FixComponent fixComponent = components.get(name);
+                    if (fixComponent != null) {
+                        return fixComponent;
+                    }
+                    final FixComponentImpl fixComponent1 = wanted.get(name);
+                    if (fixComponent1 != null) {
+                        return fixComponent1;
+                    }
+                    final FixComponentImpl fixComponent2 = new FixComponentImpl(name);
+                    wanted.put(name, fixComponent2);
+                    return fixComponent2;
+                }
+            };
+            final Map<String, FixComponent> components = new HashMap<>();
+            final Map<String, FixComponentImpl> wanted = new HashMap<>();
 
             @Override
             public FieldContainerBuilder declare(String name) {
@@ -39,18 +55,7 @@ public class FieldFactoryImpl implements FieldFactory {
                 if (components.put(name, fixComponent) != null) {
                     throw new RuntimeException("Duplicate component: " + name);
                 }
-                return new FieldContainerBuilderImpl(fields, components, fixComponent::add){
-                    @Override
-                    public void addComponent(String name, boolean required) {
-                        if (wanted.get(name) == null) {
-                            final FixComponentImpl component = new FixComponentImpl(name);
-                            wanted.put(name, component);
-                            fixComponent.add(component);
-                        } else {
-                            super.addComponent(name, required);
-                        }
-                    }
-                };
+                return new FieldContainerBuilderImpl(fields, getComponent, fixComponent::add);
             }
 
             @Override
@@ -66,23 +71,23 @@ public class FieldFactoryImpl implements FieldFactory {
                         if (messages.put(name, fixMessage) != null) {
                             throw new RuntimeException("Duplicate message: " + name);
                         }
-                        return new FieldContainerBuilderImpl(fields, components, fixMessage::add);
+                        return new FieldContainerBuilderImpl(fields, getComponent, fixMessage::add);
                     }
 
                     @Override
                     public MainFIXBuilder complete() {
                         return new MainFIXBuilder() {
-                            FixHeaderImpl fixHeader = new FixHeaderImpl();
-                            FixTrailerImpl fixTrailer = new FixTrailerImpl();
+                            final FixHeaderImpl fixHeader = new FixHeaderImpl();
+                            final FixTrailerImpl fixTrailer = new FixTrailerImpl();
 
                             @Override
                             public FieldContainerBuilder declareHeader() {
-                                return new FieldContainerBuilderImpl(fields, components, fixHeader::add);
+                                return new FieldContainerBuilderImpl(fields, getComponent, fixHeader::add);
                             }
 
                             @Override
                             public FieldContainerBuilder declareTrailer() {
-                                return new FieldContainerBuilderImpl(fields, components, fixTrailer::add);
+                                return new FieldContainerBuilderImpl(fields, getComponent, fixTrailer::add);
                             }
 
                             @Override
@@ -104,14 +109,18 @@ public class FieldFactoryImpl implements FieldFactory {
 
     private static class FieldContainerBuilderImpl implements FieldContainerBuilder {
         private final Map<String, FixField> fields;
-        private final Map<String, FixComponent> components;
+        private final GetComponent components;
         private final AddElement fixComponent;
 
         interface AddElement {
             void add(FixElement fixElement);
         }
 
-        public FieldContainerBuilderImpl(Map<String, FixField> fields, Map<String, FixComponent> components, AddElement fixComponent) {
+        interface GetComponent {
+            FixComponent get(String name);
+        }
+
+        public FieldContainerBuilderImpl(Map<String, FixField> fields, GetComponent components, AddElement fixComponent) {
             this.fields = fields;
             this.components = components;
             this.fixComponent = fixComponent;

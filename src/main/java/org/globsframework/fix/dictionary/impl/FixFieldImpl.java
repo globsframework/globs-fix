@@ -21,7 +21,7 @@ public class FixFieldImpl implements FixField {
 
     public void addEnum(String value, String description) {
         if (enums.put(value, description) != null) {
-            throw new IllegalArgumentException("Duplicate enum: " + value);
+            throw new IllegalArgumentException("Duplicate enum: " + value + " for '" + name + "', id: " + number);
         }
     }
 
