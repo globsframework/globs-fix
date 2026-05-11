@@ -8,8 +8,6 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.collections.IntHashMap;
 import org.globsframework.fix.dictionary.*;
 import org.globsframework.fix.dictionary.admin.FixAdminModel;
-import org.globsframework.fix.dictionary.model.FixComponentType;
-import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -28,8 +26,9 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
         this.fixModel = fixModel;
     }
 
-    public static DeserializerFixReaderBuilder create(FixModel fixModel, GlobModel appGlobModel, GlobType headerType, GlobType trailerType) {
 
+    public static DeserializerFixReaderBuilder create(FixModel fixModel, GlobModel appGlobModel, GlobType headerType, GlobType trailerType) {
+        FixFieldAccessor fixFieldAccessor = new FixFieldAccessor();
         DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
         FixAdminModel.MODEL.getAll().forEach(globModel::add);
 
@@ -43,88 +42,51 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
         }
         Map<String, FixStruct> messageFixStruct = new HashMap<>();
         Map<String, FixStruct> namedFixStruct = new HashMap<>();
-        final Collection<FixMessage> messages = fixModel.getMessages();
-        for (FixMessage message : messages) {
+        final Collection<FixMessageDescriptor> messages = fixModel.getMessages();
+        for (FixMessageDescriptor message : messages) {
             final String name = message.getName();
-            messageFixStruct.put(message.getMsgType(), computeFixStruct(namedFixStruct,
-                    messageTypeMap.get(name), fixModel.getMessage(name)));
+            messageFixStruct.put(message.getMsgType(),
+                    computeFixStruct(namedFixStruct, messageTypeMap.get(name), fixModel.getMessage(name), fixFieldAccessor));
         }
 
         final FixHeader header = fixModel.getHeader();
         final FixTrailer trailer = fixModel.getTrailer();
-        final FixStruct fixHeader = computeFixStruct(namedFixStruct, headerType, header);
-        final FixStruct fixTrailer = computeFixStruct(namedFixStruct, trailerType, trailer);
+        final FixStruct fixHeader = computeFixStruct(namedFixStruct, headerType, header, fixFieldAccessor);
+        final FixStruct fixTrailer = computeFixStruct(namedFixStruct, trailerType, trailer, fixFieldAccessor);
         return new DeserializerFixReaderBuilder(messageFixStruct, fixHeader, fixTrailer, fixModel);
     }
 
-    private static FixStruct computeFixStruct(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message) {
-        IntHashMap<FieldReader> fieldReaders = new IntHashMap<>();
+    private static FixStruct computeFixStruct(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message, FixFieldAccessor fixFieldAccessor) {
+        return new FixStructImpl(type, getFieldReaderIntHashMap(namedFixStruct, type, message, fixFieldAccessor, new IntHashMap<>()));
+    }
+
+    private static IntHashMap<FieldReader> getFieldReaderIntHashMap(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message,
+                                                                    FixFieldAccessor fixFieldAccessor, IntHashMap<FieldReader> fieldReaders) {
+        final Map<String, Field> fixFieldAccessorFixField = fixFieldAccessor.getFixField(type);
         final List<FixElement> elements = message.getElements();
         for (FixElement element : elements) {
             switch (element) {
                 case FixComponent component -> {
-                    boolean found = false;
-                    if (type != null) {
-                        for (Field field : type.getFields()) {
-                            if (field instanceof GlobField globField) {
-                                if (globField.getTargetType().findOptAnnotation(FixComponentType.UNIQUE_KEY)
-                                        .map(FixComponentType.name)
-                                        .filter(n -> Objects.equals(n, component.getName()))
-                                        .isPresent()) {
-                                    if (found) {
-                                        throw new IllegalStateException("Multiple component declared " + component.getName() +
-                                                                        " on " + globField.getFullName());
-                                    }
-                                    if (!namedFixStruct.containsKey(component.getName())) {
-                                        final FixStruct fixStruct = computeFixStruct(namedFixStruct,
-                                                globField.getTargetType(), component);
-                                        namedFixStruct.put(component.getName(), fixStruct);
-                                    }
-                                    final FixStruct fixStruct = namedFixStruct.get(component.getName());
-                                    FieldReader reader = new ComponentReaderImpl(fixStruct, globField);
-                                    allSubFor(fieldReaders, component, reader);
-                                    found = true;
-                                }
-                            }
-                        }
-                    }
-                    if (!found) {
-                        FixStruct fixStruct = namedFixStruct.get(component.getName());
-                        if (fixStruct == null) {
-                            fixStruct = computeFixStruct(namedFixStruct, null, component);
-                        }
-                        FieldReader reader = new NoFieldComponentReaderImpl(fixStruct);
-                        allSubFor(fieldReaders, component, reader);
-                    }
+                    getFieldReaderIntHashMap(namedFixStruct, type, component, fixFieldAccessor, fieldReaders);
                 }
                 case FixField fixField -> {
-                    boolean found = false;
-                    if (type != null) {
-                        for (Field field : type.getFields()) {
-                            if (field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
-                                    .map(FixFieldType.name)
-                                    .filter(name -> name.equals(fixField.getName())).isPresent()) {
-                                if (found) {
-                                    throw new RuntimeException("Duplicate unique key field: " + fixField.getName());
-                                }
-                                switch (field) {
-                                    case StringField stringField ->
-                                            fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField));
-                                    case IntegerField integerField ->
-                                            fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
-                                    case BooleanField booleanField ->
-                                            fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField));
-                                    case DateTimeField dateTimeField ->
-                                            fieldReaders.put(fixField.getId(), new DateTimeFieldDirectFieldReader(dateTimeField));
-                                    default ->
-                                            throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
-                                }
-                                found = true;
-                            }
-                        }
-                    }
-                    if (!found) {
+                    final Field field = fixFieldAccessorFixField.get(fixField.getName());
+                    if (field == null) {
                         fieldReaders.put(fixField.getId(), new NoFieldDirectFieldReader());
+                    }
+                    else {
+                        switch (field) {
+                            case StringField stringField ->
+                                    fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField));
+                            case IntegerField integerField ->
+                                    fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
+                            case BooleanField booleanField ->
+                                    fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField));
+                            case DateTimeField dateTimeField ->
+                                    fieldReaders.put(fixField.getId(), new DateTimeFieldDirectFieldReader(dateTimeField));
+                            default ->
+                                    throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
+                        }
                     }
                 }
                 case FixGroup fixGroup -> {
@@ -142,35 +104,21 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                                     }
                                     found = true;
                                     final FixStruct fixStruct = computeFixStruct(namedFixStruct,
-                                            globArrayField.getTargetType(), fixGroup);
+                                            globArrayField.getTargetType(), fixGroup, fixFieldAccessor);
                                     fieldReaders.put(countField.getId(), new FieldGroupReader(globArrayField, fixStruct));
                                 }
                             }
                         }
                     }
                     if (!found) {
-                        final FixStruct fixStruct = computeFixStruct(namedFixStruct, null, fixGroup);
+                        final FixStruct fixStruct = computeFixStruct(namedFixStruct, null, fixGroup, fixFieldAccessor);
                         FieldReader groupFieldReader = new NoFieldGroupReader(fixStruct);
                         fieldReaders.put(countField.getId(), groupFieldReader);
                     }
                 }
             }
         }
-        return new FixStructImpl(type, fieldReaders);
-    }
-
-    private static void allSubFor(IntHashMap<FieldReader> fieldReaders, FixElementContainer component, FieldReader fieldReader) {
-        final List<FixElement> elements = component.getElements();
-        for (FixElement element : elements) {
-            if (element instanceof FixField fixField) {
-                fieldReaders.put(fixField.getId(), fieldReader);
-            } else if (element instanceof FixGroup fixGroup) {
-                fieldReaders.put(fixGroup.getCountField().getId(), fieldReader);
-                allSubFor(fieldReaders, fixGroup, fieldReader);
-            } else if (element instanceof FixComponent fixComponent) {
-                allSubFor(fieldReaders, fixComponent, fieldReader);
-            }
-        }
+        return fieldReaders;
     }
 
     @Override

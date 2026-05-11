@@ -18,7 +18,7 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
     private static final Logger log = LoggerFactory.getLogger(InMemoryCacheDataAdapt.class);
     private final MsgSeqProvider msgSeqProvider = new BasicMsgSeqProvider();
     private final ClientSeqMsgId inMemoryClientSeqMsgId = new InMemoryClientSeqMsgId();
-    private final Map<Integer, FixMessageRepository.FixRecoveredMessage> cache = new ConcurrentHashMap<>();
+    private final Map<Integer, FixMessage> cache = new ConcurrentHashMap<>();
     private final int maxSize;
     private final IntegerField seqNumField;
     private int firstId;
@@ -40,15 +40,15 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
             private boolean full;
 
             @Override
-            synchronized public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
-                writer.write(header, message, trailer, resetSeqNum);
-                if (resetSeqNum) {
+            synchronized public void write(FixMessage fixMessage) {
+                writer.write(fixMessage);
+                if (fixMessage.resetSeqNum()) {
                     cache.clear();
                     full = false;
                     firstId = -1;
                 } else {
-                    final int seq = header.get(seqNumField);
-                    cache.put(seq, new FixMessageRepository.FixRecoveredMessage(header, message, trailer));
+                    final int seq = fixMessage.getHeader().get(seqNumField);
+                    cache.put(seq, fixMessage);
                     if (full) {
                         if (cache.remove(firstId) == null) {
                             log.warn("missing id " + firstId + " in data");
@@ -81,9 +81,9 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
     }
 
     @Override
-    public FixRecoveredMessage[] get(int fromSeqNum, int toSeqNum) {
+    public FixMessage[] get(int fromSeqNum, int toSeqNum) {
         if (fromSeqNum >= firstId) {
-            FixRecoveredMessage[] data = new FixRecoveredMessage[toSeqNum - fromSeqNum + 1];
+            FixMessage[] data = new FixMessage[toSeqNum - fromSeqNum + 1];
             for (int i = fromSeqNum; i <= toSeqNum; i++) {
                 data[i - fromSeqNum] = cache.get(i);
             }

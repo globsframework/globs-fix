@@ -10,11 +10,11 @@ public class FixModelImpl implements FixModel {
     private final String version;
     private final FixHeaderImpl fixHeader;
     private final FixTrailerImpl fixTrailer;
-    private final Map<String, FixMessage> messages;
+    private final Map<String, FixMessageDescriptor> messages;
     private final Map<String, FixComponent> components;
     private final Map<String, FixField> fields;
 
-    public FixModelImpl(String version, FixHeaderImpl fixHeader, FixTrailerImpl fixTrailer, Map<String, FixMessage> messages,
+    public FixModelImpl(String version, FixHeaderImpl fixHeader, FixTrailerImpl fixTrailer, Map<String, FixMessageDescriptor> messages,
                         Map<String, FixComponent> components, Map<String, FixField> fields) {
         this.version = version;
         this.fixHeader = fixHeader;
@@ -40,7 +40,7 @@ public class FixModelImpl implements FixModel {
     }
 
     @Override
-    public FixMessage getMessage(String messageName) {
+    public FixMessageDescriptor getMessage(String messageName) {
         return messages.get(messageName);
     }
 
@@ -50,7 +50,7 @@ public class FixModelImpl implements FixModel {
     }
 
     @Override
-    public Collection<FixMessage> getMessages() {
+    public Collection<FixMessageDescriptor> getMessages() {
         return messages.values();
     }
 }

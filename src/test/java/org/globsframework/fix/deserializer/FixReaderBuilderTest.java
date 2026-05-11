@@ -10,6 +10,7 @@ import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.dictionary.FixModel;
@@ -117,7 +118,7 @@ class FixReaderBuilderTest {
             }
         }, new BasicMsgSeqProvider());
 
-        Glob login = LogonType.create(1, LogonType.NoMsgTypes.create("1", "1"),
+        MutableGlob login = LogonType.create(1, LogonType.NoMsgTypes.create("1", "1"),
                 LogonType.NoMsgTypes.create("2", "1"));
 
         writer.write(HeaderType.create("AA", "BB"), login, null, false);
@@ -159,10 +160,10 @@ class FixReaderBuilderTest {
             }
         }, new BasicMsgSeqProvider());
 
-        Glob msg = IndicationOfInterestType.create("id1", "type1",
-                IndicationOfInterestType.InstrumentType.create("EUR/USD",
+        MutableGlob msg = IndicationOfInterestType.create("id1", "type1",
+                "EUR/USD",
                         IndicationOfInterestType.SecurityAltType.create("s1"),
-                        IndicationOfInterestType.SecurityAltType.create("s2")));
+                        IndicationOfInterestType.SecurityAltType.create("s2"));
 
         writer.write(HeaderType.create("AA", "BB"), msg, null, false);
 
@@ -176,10 +177,8 @@ class FixReaderBuilderTest {
         assertNotNull(message);
         assertEquals("id1", message.get(IndicationOfInterestType.IOIID));
         assertEquals("type1", message.get(IndicationOfInterestType.IOITransType));
-        final Glob instrument = message.get(IndicationOfInterestType.Instrument);
-        assertNotNull(instrument);
-        assertEquals("EUR/USD", instrument.get(IndicationOfInterestType.InstrumentType.Symbol));
-        final Glob[] secs = instrument.get(IndicationOfInterestType.InstrumentType.securityAltID);
+        assertEquals("EUR/USD", message.get(IndicationOfInterestType.Symbol));
+        final Glob[] secs = message.get(IndicationOfInterestType.securityAltID);
         assertNotNull(secs);
         assertEquals(2, secs.length);
         assertEquals("s1", secs[0].get(IndicationOfInterestType.SecurityAltType.SecurityAltID));
@@ -195,14 +194,18 @@ class FixReaderBuilderTest {
         public static final StringField IOITransType;
 
 
-        @Target(InstrumentType.class)
-        public static final GlobField Instrument;
+        public static final StringField Symbol;
 
-        public static Glob create(String ioiid, String type, Glob instr) {
+        @Target(SecurityAltType.class)
+        public static final GlobArrayField securityAltID;
+
+
+        public static MutableGlob create(String ioiid, String type, String symbol, Glob...sec) {
             return TYPE.instantiate()
                     .set(IOIID, ioiid)
                     .set(IOITransType, type)
-                    .set(Instrument, instr);
+                    .set(Symbol, symbol)
+                    .set(securityAltID, sec);
         }
 
         static {
@@ -210,7 +213,8 @@ class FixReaderBuilderTest {
             typeBuilder.addAnnotation(FixMessageType.create("IndicationOfInterest"));
             IOIID = typeBuilder.declareStringField("IOIID", FixFieldType.create("IOIID"));
             IOITransType = typeBuilder.declareStringField("IOITransType", FixFieldType.create("IOITransType"));
-            Instrument = typeBuilder.declareGlobField("Instrument", () -> InstrumentType.TYPE);
+            Symbol = typeBuilder.declareStringField("Symbol", FixFieldType.create("Symbol"));
+            securityAltID = typeBuilder.declareGlobArrayField("securityAltID", () -> SecurityAltType.TYPE);
             TYPE = typeBuilder.build();
         }
 

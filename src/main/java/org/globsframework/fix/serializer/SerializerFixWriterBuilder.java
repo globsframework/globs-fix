@@ -8,7 +8,6 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.*;
 import org.globsframework.fix.dictionary.admin.FixAdminModel;
-import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
@@ -23,13 +22,13 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
     private static final Logger log = LoggerFactory.getLogger(SerializerFixWriterBuilder.class);
     private static final Set<Integer> headerFieldToIgnore = Set.of(8, 9, 35);
     private static final Set<Integer> trailerFieldToIgnore = Set.of(10);
-    private final Map<GlobType, FieldWrite> writerPerMessageType;
+    private final Map<GlobType, MessageFieldWrite> writerPerMessageType;
     private final Map<GlobType, byte[]> messageTypePerType;
     private final FixModel fixModel;
     private final IntegerField checksum;
     private final HeaderDesc headerDesc;
 
-    public SerializerFixWriterBuilder(Map<GlobType, FieldWrite> writerPerMessageType, Map<GlobType, byte[]> messageTypePerType,
+    public SerializerFixWriterBuilder(Map<GlobType, MessageFieldWrite> writerPerMessageType, Map<GlobType, byte[]> messageTypePerType,
                                       FixModel fixModel, GlobType trailerType, HeaderDesc headerDesc) {
         this.writerPerMessageType = writerPerMessageType;
         this.messageTypePerType = messageTypePerType;
@@ -42,8 +41,6 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                                                     GlobType headerType, GlobType trailerType) {
 
         HeaderDesc headerDesc = HeaderDesc.create(headerType);
-        Map<GlobType, List<FieldWrite>> writerPerType = new HashMap<>();
-
         DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
         FixAdminModel.MODEL.getAll().forEach(globModel::add);
 
@@ -60,22 +57,23 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
             }
         }
 
-        Map<GlobType, FieldWrite> writerPerMessageType = new HashMap<>();
+        Map<GlobType, MessageFieldWrite> writerPerMessageType = new HashMap<>();
 
         Map<GlobType, byte[]> messageTypePerType = new HashMap<>();
-        for (FixMessage message : fixModel.getMessages()) {
+        for (FixMessageDescriptor message : fixModel.getMessages()) {
             final List<FixElement> elements = message.getElements();
             final GlobType messageType = messageTypeMap.get(message.getName());
             if (messageType == null) {
                 log.debug("Glob type type not found for message: " + message.getName());
             } else {
-                final List<FieldWrite> orCreate = getOrCreate(writerPerType, elements, messageType);
-                writerPerMessageType.put(messageType, new MessageFieldWrite(orCreate));
+                final HashMap<Field, FieldWrite> fieldWrites = new HashMap<>();
+                extracted(fieldWrites, elements, messageType);
+                writerPerMessageType.put(messageType, new MessageFieldWrite(messageType, fieldWrites));
                 messageTypePerType.put(messageType, message.getMsgType().getBytes(StandardCharsets.US_ASCII));
             }
         }
         writerPerMessageType.put(headerType,
-                new MessageFieldWrite(getOrCreate(writerPerType, fixModel.getHeader()
+                new MessageFieldWrite(headerType, extracted(new HashMap<>(), fixModel.getHeader()
                         .getElements()
                         .stream()
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
@@ -83,7 +81,7 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                         .toList(), headerType)));
 
         writerPerMessageType.put(trailerType,
-                new MessageFieldWrite(getOrCreate(writerPerType, fixModel.getTrailer()
+                new MessageFieldWrite(trailerType, extracted(new HashMap<>(), fixModel.getTrailer()
                         .getElements()
                         .stream()
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
@@ -92,18 +90,7 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
         return new SerializerFixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel, trailerType, headerDesc);
     }
 
-    private static List<FieldWrite> getOrCreate(Map<GlobType, List<FieldWrite>> types, List<FixElement> elements, GlobType messageType) {
-        final List<FieldWrite> fieldWrites = types.get(messageType);
-        if (fieldWrites != null) {
-            return fieldWrites;
-        }
-        final List<FieldWrite> extracted = extracted(types, elements, messageType);
-        types.put(messageType, extracted);
-        return extracted;
-    }
-
-    private static List<FieldWrite> extracted(Map<GlobType, List<FieldWrite>> types, List<FixElement> elements, GlobType messageType) {
-        final List<FieldWrite> fieldWrites = new ArrayList<>();
+    private static Map<Field, FieldWrite> extracted(Map<Field, FieldWrite> fieldWrites, List<FixElement> elements, GlobType messageType) {
         Map<String, Field> fields = new HashMap<>();
         for (Field field : messageType.getFields()) {
             switch (field) {
@@ -112,13 +99,6 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                         .ifPresent(s -> {
                             if (fields.put(s, field) != null) {
                                 throw new RuntimeException("Duplicate group name " + s + " on " + field.getFullName());
-                            }
-                        });
-                case GlobField gl -> gl.getTargetType().findOptAnnotation(FixComponentType.UNIQUE_KEY)
-                        .map(FixComponentType.name)
-                        .ifPresent(s -> {
-                            if (fields.put(s, field) != null) {
-                                throw new RuntimeException("Duplicate component name " + s + " on " + field.getFullName());
                             }
                         });
                 default -> field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
@@ -138,19 +118,19 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     final Field field = fields.get(fixField.getName());
                     if (field != null) {
                         switch (field) {
-                            case StringField stringField -> fieldWrites.add(new StringFieldWrite(
+                            case StringField stringField -> fieldWrites.put(field, new StringFieldWrite(
                                     fixField.getId(),
                                     messageType.getGetAccessor(stringField)
                             ));
-                            case IntegerField integerField -> fieldWrites.add(new IntegerFieldWrite(
+                            case IntegerField integerField -> fieldWrites.put(field, new IntegerFieldWrite(
                                     fixField.getId(),
                                     messageType.getGetAccessor(integerField)
                             ));
-                            case BooleanField booleanField -> fieldWrites.add(new BooleanFieldWrite(
+                            case BooleanField booleanField -> fieldWrites.put(field, new BooleanFieldWrite(
                                     fixField.getId(),
                                     messageType.getGetAccessor(booleanField)
                             ));
-                            case DateTimeField dateTimeField -> fieldWrites.add(new DateTimeFieldWrite(
+                            case DateTimeField dateTimeField -> fieldWrites.put(field, new DateTimeFieldWrite(
                                     fixField.getId(),
                                     messageType.getGetAccessor(dateTimeField)
                             ));
@@ -162,27 +142,16 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     }
                 }
                 case FixComponent fixComponent -> {
-                    final Field field = fields.get(fixComponent.getName());
-                    if (field != null) {
-                        if (field instanceof GlobField globField) {
-                            final List<FieldWrite> writes = getOrCreate(types, fixComponent.getElements(), globField.getTargetType());
-                            fieldWrites.add(new ComponentFieldWrite(globField, writes));
-                        } else {
-                            throw new RuntimeException("Field " + fixComponent.getName() + " is of type " + field.getDataType() +
-                                                       "  but should be a Glob field " + field.getFullName());
-                        }
-                    } else {
-                        log.debug("No glob field for " + fixComponent.getName());
-                    }
+                    extracted(fieldWrites, fixComponent.getElements(), messageType);
                 }
                 case FixGroup fixGroup -> {
                     final String firstFieldName = fixGroup.getCountField().getName();
                     final Field field = fields.get(firstFieldName);
                     if (field != null) {
                         if (field instanceof GlobArrayField globArrayField) {
-                            final List<FieldWrite> writes = getOrCreate(types, fixGroup.getElements(), globArrayField.getTargetType());
+                            final Map<Field, FieldWrite> writes = extracted(new HashMap<>(), fixGroup.getElements(), globArrayField.getTargetType());
                             final byte[] idBytes = Integer.toString(fixGroup.getCountField().getId()).getBytes(StandardCharsets.US_ASCII);
-                            fieldWrites.add(new GroupFieldWrite(globArrayField, idBytes, writes));
+                            fieldWrites.put(field, new GroupFieldWrite(globArrayField, idBytes, writes));
                         } else {
                             throw new RuntimeException("Field " + firstFieldName + " is of type " + field.getDataType() +
                                                        "  but should be a Glob Array Field " + field.getFullName());
@@ -203,36 +172,15 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                 msgSeqProvider, checksum, headerDesc);
     }
 
-    private static class ComponentFieldWrite implements FieldWrite {
-        private final GlobField globField;
-        private final List<FieldWrite> writes;
-
-        public ComponentFieldWrite(GlobField globField, List<FieldWrite> writes) {
-            this.globField = globField;
-            this.writes = writes;
-        }
-
-        @Override
-        public int writeAt(byte[] buffer, int at, Glob data) {
-            final Glob glob = data.get(globField);
-            if (glob != null) {
-                for (FieldWrite write : writes) {
-                    at = write.writeAt(buffer, at, glob);
-                }
-            }
-            return at;
-        }
-    }
-
-    private static class GroupFieldWrite implements FieldWrite {
+    private final static class GroupFieldWrite implements FieldWrite {
         private final GlobArrayField globArrayField;
         private final byte[] idBytes;
-        private final List<FieldWrite> writes;
+        private final FieldWrite[] writes;
 
-        public GroupFieldWrite(GlobArrayField globArrayField, byte[] idBytes, List<FieldWrite> writes) {
+        public GroupFieldWrite(GlobArrayField globArrayField, byte[] idBytes, Map<Field, FieldWrite> writes) {
             this.globArrayField = globArrayField;
             this.idBytes = idBytes;
-            this.writes = writes;
+            this.writes = writes.values().toArray(new FieldWrite[0]);
         }
 
         @Override
@@ -248,22 +196,6 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                         at = write.writeAt(buffer, at, glob);
                     }
                 }
-            }
-            return at;
-        }
-    }
-
-    private static class MessageFieldWrite implements FieldWrite {
-        private final List<FieldWrite> writes;
-
-        public MessageFieldWrite(List<FieldWrite> writes) {
-            this.writes = writes;
-        }
-
-        @Override
-        public int writeAt(byte[] buffer, int at, Glob data) {
-            for (FieldWrite fieldWrite : writes) {
-                at = fieldWrite.writeAt(buffer, at, data);
             }
             return at;
         }

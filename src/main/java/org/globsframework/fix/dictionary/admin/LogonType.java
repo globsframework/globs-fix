@@ -8,6 +8,7 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
@@ -32,7 +33,7 @@ public class LogonType {
                 .set(heartBtInt, heartbeatInS);
     }
 
-    public static Glob create(int encryp, Glob...msgTypes) {
+    public static MutableGlob create(int encryp, Glob...msgTypes) {
         return TYPE.instantiate()
                 .set(encryptMethod, encryp)
                 .set(LogonType.msgTypes, msgTypes);

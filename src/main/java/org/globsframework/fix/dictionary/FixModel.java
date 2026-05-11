@@ -10,9 +10,9 @@ public interface FixModel {
 
     FixHeader getHeader();
 
-    FixMessage getMessage(String messageName);
+    FixMessageDescriptor getMessage(String messageName);
 
     FixComponent getComponent(String componentName);
 
-    Collection<FixMessage> getMessages();
+    Collection<FixMessageDescriptor> getMessages();
 }

@@ -73,12 +73,11 @@ public class FixSessionImpl implements FixMessageListener {
         this.scheduledExecutorService = scheduledExecutorService;
         this.writer = new FixWriter() {
             @Override
-            public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
+            public void write(FixMessage fixMessage) {
                 lastWriteOut = System.currentTimeMillis();
-                fixWriter.write(header, message, trailer, false);
+                fixWriter.write(fixMessage);
                 if (log.isDebugEnabled()) {
-                    log.debug(identSend + " send : [" + jsonOut(header, false) + "," + jsonOut(message, true) + ", " +
-                              jsonOut(trailer, false) + "], reset " + resetSeqNum);
+                    log.debug("{} send : {}", identSend, fixMessage);
                 }
             }
         };
@@ -989,16 +988,17 @@ public class FixSessionImpl implements FixMessageListener {
         userSession = null;
     }
 
-    private void treatReSend(FixMessageValue message) {
-        final Integer beginSeq = message.message().get(ResendRequestType.beginSeqNo);
-        final int endSeq = message.message().get(ResendRequestType.endSeqNo, 0);
-        final FixMessageRepository.FixRecoveredMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
+    private void treatReSend(FixMessageValue fixMessageValue) {
+        final Integer beginSeq = fixMessageValue.message().get(ResendRequestType.beginSeqNo);
+        final int endSeq = fixMessageValue.message().get(ResendRequestType.endSeqNo, 0);
+        final FixMessage[] data = fixMessageRepository.get(beginSeq, endSeq);
         if (data != null && data.length > 0) {
             int gapfill = -1;
-            for (FixMessageRepository.FixRecoveredMessage d : data) {
-                if (FixAdminModel.TYPES.contains(d.message().getType())) {
+            for (FixMessage d : data) {
+                final MutableGlob header = d.getHeader();
+                if (FixAdminModel.TYPES.contains(d.getBody().getType())) {
                     if (gapfill == -1) {
-                        gapfill = d.header().get(headerDesc.seqNumField());
+                        gapfill = header.get(headerDesc.seqNumField());
                     }
                 } else {
                     if (gapfill != -1) {
@@ -1006,14 +1006,14 @@ public class FixSessionImpl implements FixMessageListener {
                                 .set(headerDesc.isDup(), true)
                                 .set(headerDesc.seqNumField(), gapfill);
                         writer.write(h,
-                                SequenceResetType.create(true, d.header().get(headerDesc.seqNumField())),
+                                SequenceResetType.create(true, header.get(headerDesc.seqNumField())),
                                 null, false); // send GapFill
                         gapfill = -1;
                     }
-                    writer.write(d.header().duplicate()
+                    writer.write(header.duplicate()
                                     .set(headerDesc.isDup(), true)
-                                    .set(headerDesc.origSendingTime(), d.header().get(headerDesc.sendingTime()))
-                            , d.message(), d.trailer(), false);
+                                    .set(headerDesc.origSendingTime(), header.get(headerDesc.sendingTime()))
+                            , d.getBody(), d.getTrailer(), false);
                 }
             }
             if (gapfill != -1) {
@@ -1095,12 +1095,12 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         @Override
-        public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
+        public void write(FixMessage message) {
             if (closed) {
                 throw new RuntimeException("Session is closed");
             }
-            header.unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
-            writer.write(header, message, trailer, false);
+            message.getHeader().unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
+            writer.write(message);
         }
     }
 }

@@ -16,7 +16,7 @@ class ReadFixDictionaryTest {
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(getClass().getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
-        final FixMessage heartbeat = fixModel.getMessage("Heartbeat");
+        final FixMessageDescriptor heartbeat = fixModel.getMessage("Heartbeat");
         assertNotNull(heartbeat);
         assertEquals(1, heartbeat.getElements().size());
         final FixComponent settlInstructionsData = fixModel.getComponent("SettlInstructionsData");

@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -22,7 +23,7 @@ public class ResendRequestType {
         TYPE = builder.build();
     }
 
-    public static Glob create(int beginSeqNo, int endSeqNo) {
+    public static MutableGlob create(int beginSeqNo, int endSeqNo) {
         return TYPE.instantiate()
                 .set(ResendRequestType.beginSeqNo, beginSeqNo)
                 .set(ResendRequestType.endSeqNo, endSeqNo);

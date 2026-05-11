@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -20,12 +21,12 @@ public class HeartbeatType {
         TYPE = builder.build();
     }
 
-    public static Glob create(String testReqId) {
+    public static MutableGlob create(String testReqId) {
         return TYPE.instantiate()
                 .set(testReqID, testReqId);
     }
 
-    public static Glob create() {
+    public static MutableGlob create() {
         return TYPE.instantiate();
     }
 }

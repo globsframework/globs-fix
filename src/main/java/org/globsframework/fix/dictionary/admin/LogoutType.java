@@ -6,6 +6,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
@@ -25,7 +26,7 @@ public class LogoutType {
         TYPE = builder.build();
     }
 
-    public static Glob create(String message) {
+    public static MutableGlob create(String message) {
         return TYPE.instantiate().set(text, message);
     }
 }

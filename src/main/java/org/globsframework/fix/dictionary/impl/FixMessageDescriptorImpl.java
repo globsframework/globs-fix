@@ -1,18 +1,18 @@
 package org.globsframework.fix.dictionary.impl;
 
 import org.globsframework.fix.dictionary.FixElement;
-import org.globsframework.fix.dictionary.FixMessage;
+import org.globsframework.fix.dictionary.FixMessageDescriptor;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class FixMessageImpl implements FixMessage {
+public class FixMessageDescriptorImpl implements FixMessageDescriptor {
     private final List<FixElement> fields = new ArrayList<>();
     private final String name;
     private final String msgtype;
     private final String msgcat;
 
-    public FixMessageImpl(String name, String msgtype, String msgcat) {
+    public FixMessageDescriptorImpl(String name, String msgtype, String msgcat) {
         this.name = name;
         this.msgtype = msgtype;
         this.msgcat = msgcat;

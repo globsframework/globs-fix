@@ -60,14 +60,14 @@ public class FieldFactoryImpl implements FieldFactory {
 
             @Override
             public MessagesBuilder complete() {
-                Map<String, FixMessage> messages = new HashMap<>();
+                Map<String, FixMessageDescriptor> messages = new HashMap<>();
                 if (!wanted.isEmpty()) {
                     throw new RuntimeException("All messages not declared " + wanted.keySet());
                 }
                 return new MessagesBuilder() {
                     @Override
                     public FieldContainerBuilder declare(String name, String msgtype, String msgcat) {
-                        final FixMessageImpl fixMessage = new FixMessageImpl(name, msgtype, msgcat);
+                        final FixMessageDescriptorImpl fixMessage = new FixMessageDescriptorImpl(name, msgtype, msgcat);
                         if (messages.put(name, fixMessage) != null) {
                             throw new RuntimeException("Duplicate message: " + name);
                         }

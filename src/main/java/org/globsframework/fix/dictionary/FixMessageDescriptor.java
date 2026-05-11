@@ -1,6 +1,6 @@
 package org.globsframework.fix.dictionary;
 
-public interface FixMessage extends FixElementContainer {
+public interface FixMessageDescriptor extends FixElementContainer {
 
     String getName();
 

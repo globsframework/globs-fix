@@ -2,11 +2,13 @@ package org.globsframework.fix.serializer;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.DateTimeField;
+import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
+import org.globsframework.fix.engine.FixMessage;
 import org.globsframework.fix.engine.HeaderDesc;
 
 import java.nio.charset.StandardCharsets;
@@ -18,14 +20,14 @@ public class FixWriterImpl implements FixWriter {
     private final byte[] version;
     private final byte[] buffer = new byte[1024 * 1024];
     private final Publish publish;
-    private final Map<GlobType, FieldWrite> writeMap;
+    private final Map<GlobType, MessageFieldWrite> writeMap;
     private final Map<GlobType, byte[]> typeToMessageType;
     private final MsgSeqProvider msgSeqProvider;
     private final IntegerField msgSeqNum;
     private final IntegerField checksum;
     private final DateTimeField sendingTime;
 
-    public FixWriterImpl(FixModel fixModel, Publish publish, Map<GlobType, FieldWrite> writeMap,
+    public FixWriterImpl(FixModel fixModel, Publish publish, Map<GlobType, MessageFieldWrite> writeMap,
                          Map<GlobType, byte[]> typeToMessageType, MsgSeqProvider msgSeqProvider,
                          IntegerField checksum, HeaderDesc headerDesc) {
         version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
@@ -39,13 +41,16 @@ public class FixWriterImpl implements FixWriter {
     }
 
     @Override
-    synchronized public void write(MutableGlob header, Glob message, MutableGlob trailer, boolean resetSeqNum) {
+    synchronized public void write(FixMessage fixMessage) {
         int at = OFFSET;
+        final MutableGlob header = fixMessage.getHeader();
+        final MutableGlob trailer = fixMessage.getTrailer();
+        final MutableGlob message = fixMessage.getBody();
         boolean isSeqNext = header.isNotSet(msgSeqNum);
         if (isSeqNext) {
             header.set(msgSeqNum, msgSeqProvider.next());
         }
-        if (resetSeqNum) {
+        if (fixMessage.resetSeqNum()) {
             msgSeqProvider.reset();
         }
         if (header.isNotSet(sendingTime)) {
@@ -55,7 +60,7 @@ public class FixWriterImpl implements FixWriter {
         int s = 0;
         try {
             at = write(header, at);
-            at = write(message, at);
+            at = write(fixMessage, at);
             int endAt = write(trailer, at);
 
             final byte[] msgType = typeToMessageType.get(message.getType());
@@ -123,11 +128,29 @@ public class FixWriterImpl implements FixWriter {
     private int write(Glob data, int at) {
         if (data != null) {
             final GlobType type = data.getType();
-            final FieldWrite fieldWrite = writeMap.get(type);
+            final MessageFieldWrite fieldWrite = writeMap.get(type);
             if (fieldWrite == null) {
                 throw new RuntimeException("Not writers found for type: " + type.getName());
             }
             return fieldWrite.writeAt(buffer, at, data);
+        }
+        return at;
+    }
+
+    private int write(FixMessage data, int at) {
+        if (data != null) {
+            final GlobType type = data.getBody().getType();
+            final MessageFieldWrite fieldWrite = writeMap.get(type);
+            if (fieldWrite == null) {
+                throw new RuntimeException("Not writers found for type: " + type.getName());
+            }
+            final FixMessage.UpdatedField updatedFields = data.getUpdatedFields();
+            if (updatedFields == null) {
+                return fieldWrite.writeAt(buffer, at, data.getBody());
+            }
+            else {
+                return fieldWrite.writeAt(buffer, at, data.getBody(), updatedFields.indexFields(), updatedFields.len());
+            }
         }
         return at;
     }

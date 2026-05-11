@@ -10,6 +10,7 @@ import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
 import org.globsframework.fix.dictionary.FixModel;
@@ -56,12 +57,11 @@ public class FixReadWriteWithComponentInGroup {
             }
         }, new BasicMsgSeqProvider());
 
-        Glob news = PartialNews.create(PartialNews.GrpInstrument.create(
-                        PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s1"),
-                                PartialNews.SecurityAltType.create("s2"))),
-                PartialNews.GrpInstrument.create(
-                        PartialNews.InstrumentType.create(PartialNews.SecurityAltType.create("s3"),
-                                PartialNews.SecurityAltType.create("s4"))));
+        MutableGlob news = PartialNews.create(PartialNews.GrpInstrument.create(
+                        PartialNews.SecurityAltType.create("s1"),
+                                PartialNews.SecurityAltType.create("s2")),
+                PartialNews.GrpInstrument.create(PartialNews.SecurityAltType.create("s3"),
+                                PartialNews.SecurityAltType.create("s4")));
 
         writer.write(HeaderType.create("AA", "BB"), news, null, false);
 
@@ -78,7 +78,6 @@ public class FixReadWriteWithComponentInGroup {
                 {
                   "relatedInstr": [
                     {
-                      "instruments": {
                         "securityAltID": [
                           {
                             "SecurityAltID": "s1"
@@ -87,10 +86,8 @@ public class FixReadWriteWithComponentInGroup {
                             "SecurityAltID": "s2"
                           }
                         ]
-                      }
                     },
                     {
-                      "instruments": {
                         "securityAltID": [
                           {
                             "SecurityAltID": "s3"
@@ -99,7 +96,6 @@ public class FixReadWriteWithComponentInGroup {
                             "SecurityAltID": "s4"
                           }
                         ]
-                      }
                     }
                   ]
                 }"""), GSonUtils.normalize(json));
@@ -110,7 +106,7 @@ public class FixReadWriteWithComponentInGroup {
 
         public static final GlobArrayField relatedInstr;
 
-        public static Glob create(Glob... related) {
+        public static MutableGlob create(Glob... related) {
             return TYPE.instantiate()
                     .set(relatedInstr, related);
         }
@@ -125,35 +121,18 @@ public class FixReadWriteWithComponentInGroup {
         public static class GrpInstrument {
             public static final GlobType TYPE;
 
-            public static final GlobField instrument;
-
-            public static Glob create(Glob instr) {
-                return TYPE.instantiate()
-                        .set(instrument, instr);
-            }
-
-            static {
-                final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("GrpcInstruments");
-                typeBuilder.addAnnotation(FixGroupType.create("NoRelatedSym"));
-                instrument = typeBuilder.declareGlobField("instruments", () -> InstrumentType.TYPE);
-                TYPE = typeBuilder.build();
-            }
-        }
-
-        public static class InstrumentType {
-            public static final GlobType TYPE;
-
             @Target(SecurityAltType.class)
             public static final GlobArrayField securityAltID;
 
-            public static Glob create(Glob... sec) {
+
+            public static Glob create(Glob...sec) {
                 return TYPE.instantiate()
                         .set(securityAltID, sec);
             }
 
             static {
-                final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Instrument");
-                typeBuilder.addAnnotation(FixComponentType.create("Instrument"));
+                final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("GrpcInstruments");
+                typeBuilder.addAnnotation(FixGroupType.create("NoRelatedSym"));
                 securityAltID = typeBuilder.declareGlobArrayField("securityAltID", () -> SecurityAltType.TYPE);
                 TYPE = typeBuilder.build();
             }
