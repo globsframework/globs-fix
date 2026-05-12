@@ -11,8 +11,8 @@ public record HeaderDesc(GlobType headerType, StringField senderCompIDField,
                          StringField msgType,
                          IntegerField seqNumField,
                          BooleanField isDup,
-                         DateTimeField sendingTime,
-                         DateTimeField origSendingTime) {
+                         StringField sendingTime,
+                         StringField origSendingTime) {
 
     public static HeaderDesc create(GlobType headerType) {
         StringField senderCompIDField = getField(headerType, "SenderCompID").map(Field::asStringField).orElseThrow();
@@ -20,8 +20,8 @@ public record HeaderDesc(GlobType headerType, StringField senderCompIDField,
         StringField msgType = getField(headerType, "MsgType").map(Field::asStringField).orElseThrow();
         IntegerField seqNumField = getField(headerType, "MsgSeqNum").map(Field::asIntegerField).orElseThrow();
         BooleanField isDup = getField(headerType, "PossDupFlag").map(Field::asBooleanField).orElseThrow();
-        DateTimeField sendingTime = getField(headerType, "SendingTime").map(Field::asDateTimeField).orElseThrow();
-        DateTimeField origSendingTime = getField(headerType, "OrigSendingTime").map(Field::asDateTimeField).orElseThrow();
+        StringField sendingTime = getField(headerType, "SendingTime").map(Field::asStringField).orElseThrow();
+        StringField origSendingTime = getField(headerType, "OrigSendingTime").map(Field::asStringField).orElseThrow();
         return new HeaderDesc(headerType, senderCompIDField, targetCompIDField, msgType, seqNumField, isDup, sendingTime, origSendingTime);
     }
 

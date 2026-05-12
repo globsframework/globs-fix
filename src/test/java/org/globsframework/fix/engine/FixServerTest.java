@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.utils.Ref;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -51,12 +52,13 @@ class FixServerTest {
 
         globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
 
-        deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        headerDesc = HeaderDesc.create(HeaderType.TYPE);
-
         executorService = Executors.newCachedThreadPool();
         scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+        serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
+                UTCFormater.withAutoRefresh(scheduledExecutorService));
+        headerDesc = HeaderDesc.create(HeaderType.TYPE);
+
 //        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();
         serializerProvider = new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
     }

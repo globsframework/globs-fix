@@ -6,15 +6,14 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
-import org.globsframework.core.metamodel.fields.GlobField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.dictionary.FixModel;
-import org.globsframework.fix.dictionary.model.FixComponentType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
@@ -33,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -47,7 +47,7 @@ public class FixReadWriteWithComponentInGroup {
 
         final GlobModel globModel = new DefaultGlobModel(PartialNews.TYPE);
         final SerializerFixWriterBuilder fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel,
-                HeaderType.TYPE, TrailerType.TYPE);
+                HeaderType.TYPE, TrailerType.TYPE, UTCFormater.shouldRefresh());
 
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {

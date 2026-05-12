@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.*;
 import org.globsframework.fix.dictionary.admin.FixAdminModel;
@@ -27,18 +28,20 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
     private final FixModel fixModel;
     private final IntegerField checksum;
     private final HeaderDesc headerDesc;
+    private final UTCFormater utcFormater;
 
     public SerializerFixWriterBuilder(Map<GlobType, MessageFieldWrite> writerPerMessageType, Map<GlobType, byte[]> messageTypePerType,
-                                      FixModel fixModel, GlobType trailerType, HeaderDesc headerDesc) {
+                                      FixModel fixModel, GlobType trailerType, HeaderDesc headerDesc, UTCFormater utcFormater) {
         this.writerPerMessageType = writerPerMessageType;
         this.messageTypePerType = messageTypePerType;
         this.fixModel = fixModel;
         checksum = HeaderDesc.getField(trailerType, "CheckSum").map(Field::asIntegerField).orElse(null);
         this.headerDesc = headerDesc;
+        this.utcFormater = utcFormater;
     }
 
     public static SerializerFixWriterBuilder create(FixModel fixModel, GlobModel appGlobModel,
-                                                    GlobType headerType, GlobType trailerType) {
+                                                    GlobType headerType, GlobType trailerType, UTCFormater utcFormater) {
 
         HeaderDesc headerDesc = HeaderDesc.create(headerType);
         DefaultGlobModel globModel = new DefaultGlobModel(appGlobModel);
@@ -87,7 +90,8 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
                                               !trailerFieldToIgnore.contains(((FixField) fixElement).getId()))
                         .toList(), trailerType)));
-        return new SerializerFixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel, trailerType, headerDesc);
+        return new SerializerFixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel,
+                trailerType, headerDesc, utcFormater);
     }
 
     private static Map<Field, FieldWrite> extracted(Map<Field, FieldWrite> fieldWrites, List<FixElement> elements, GlobType messageType) {
@@ -169,7 +173,7 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
     @Override
     public FixWriter createWriter(Publish publish, MsgSeqProvider msgSeqProvider) {
         return new FixWriterImpl(fixModel, publish, writerPerMessageType, messageTypePerType,
-                msgSeqProvider, checksum, headerDesc);
+                msgSeqProvider, checksum, headerDesc, utcFormater);
     }
 
     private final static class GroupFieldWrite implements FieldWrite {

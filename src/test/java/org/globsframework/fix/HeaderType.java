@@ -22,9 +22,9 @@ public class HeaderType {
 
     public static final IntegerField msgSeqNum;
 
-    public static final DateTimeField sendingTime;
+    public static final StringField sendingTime;
 
-    public static final DateTimeField origSendingTime;
+    public static final StringField origSendingTime;
 
     public static final BooleanField possDupFlag;
 
@@ -41,8 +41,8 @@ public class HeaderType {
         targetCompID = typeBuilder.declareStringField("targetCompID", FixFieldType.create("TargetCompID"));
         msgType = typeBuilder.declareStringField("msgType", FixFieldType.create("MsgType"));
         msgSeqNum = typeBuilder.declareIntegerField("msgSeqNum", FixFieldType.create("MsgSeqNum"));
-        sendingTime = typeBuilder.declareDateTimeField("sendingTime", FixFieldType.create("SendingTime"));
-        origSendingTime = typeBuilder.declareDateTimeField("origSendingTime", FixFieldType.create("OrigSendingTime"));
+        sendingTime = typeBuilder.declareStringField("sendingTime", FixFieldType.create("SendingTime"));
+        origSendingTime = typeBuilder.declareStringField("origSendingTime", FixFieldType.create("OrigSendingTime"));
         possDupFlag = typeBuilder.declareBooleanField("possDupFlag", FixFieldType.create("PossDupFlag"));
         TYPE = typeBuilder.build();
     }

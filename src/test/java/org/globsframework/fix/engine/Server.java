@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -23,17 +24,18 @@ public class Server {
         final FixModel fixModel = ReadFixDictionary.parse("fix44", () ->
                 new InputStreamReader(FixServer.class.getClassLoader().getResourceAsStream("FIX44.xml"),
                         StandardCharsets.UTF_8), new FieldFactoryImpl());
+        final ExecutorService executorService = Executors.newCachedThreadPool();
+        final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
 
         final DeserializerFixReaderBuilder deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
-        final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
+        final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
+                UTCFormater.withAutoRefresh(scheduledExecutorService));
         final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
         final SingleSerializerProvider serializerProvider = new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
 
-        final ExecutorService executorService = Executors.newCachedThreadPool();
-        final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final FixServer fixServer = new FixServer("0.0.0.0", 5456,
                 new FixConnectionFactory(new FixServerTest.LoggerPublish(), executorService, scheduledExecutorService,
                         new ServerUserLogonSessionFactory(scheduledExecutorService, 1000, 1),

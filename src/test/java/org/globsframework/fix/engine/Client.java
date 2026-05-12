@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -25,6 +26,9 @@ public class Client {
 
     public static void main(String[] args) throws Exception {
 
+        final ExecutorService executorService = Executors.newCachedThreadPool();
+        final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+
         final var notifyNewClient = new ClientUserLogonSessionFactory.NotifyNewClient(){
             CompletableFuture<ClientUserSession> completableFuture;
 
@@ -42,11 +46,10 @@ public class Client {
 
         final SingleSerializerProvider serializerProvider = new SingleSerializerProvider(
                 DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
-                SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE),
+                SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
+                        UTCFormater.withAutoRefresh(scheduledExecutorService)),
                 HeaderType.getHeaderDesc());
 
-        final ExecutorService executorService = Executors.newCachedThreadPool();
-        final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         final FixClient fixClient = new FixClient("localhost", 5456,
                 new FixConnectionFactory(
                         new FixServerTest.LoggerPublish(), executorService, scheduledExecutorService, userLogonSessionFactory, (senderCompID, targetCompID) -> new NoCacheDataAdapt(),

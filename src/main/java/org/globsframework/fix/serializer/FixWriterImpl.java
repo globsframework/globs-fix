@@ -1,35 +1,36 @@
 package org.globsframework.fix.serializer;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.DateTimeField;
-import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.IntegerField;
+import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.engine.FixMessage;
 import org.globsframework.fix.engine.HeaderDesc;
 
 import java.nio.charset.StandardCharsets;
-import java.time.ZonedDateTime;
 import java.util.Map;
 
 public class FixWriterImpl implements FixWriter {
     public static final int OFFSET = 32;
     private final byte[] version;
     private final byte[] buffer = new byte[1024 * 1024];
+    private final byte[] utcTime = new byte[21];
     private final Publish publish;
     private final Map<GlobType, MessageFieldWrite> writeMap;
     private final Map<GlobType, byte[]> typeToMessageType;
     private final MsgSeqProvider msgSeqProvider;
     private final IntegerField msgSeqNum;
     private final IntegerField checksum;
-    private final DateTimeField sendingTime;
+    private final StringField sendingTime;
+    private final UTCFormater utcFormater;
 
     public FixWriterImpl(FixModel fixModel, Publish publish, Map<GlobType, MessageFieldWrite> writeMap,
                          Map<GlobType, byte[]> typeToMessageType, MsgSeqProvider msgSeqProvider,
-                         IntegerField checksum, HeaderDesc headerDesc) {
+                         IntegerField checksum, HeaderDesc headerDesc, UTCFormater utcFormater) {
         version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
         this.publish = publish;
         this.writeMap = writeMap;
@@ -38,6 +39,7 @@ public class FixWriterImpl implements FixWriter {
         this.msgSeqNum = headerDesc.seqNumField();
         this.checksum = checksum;
         this.sendingTime = headerDesc.sendingTime();
+        this.utcFormater = utcFormater;
     }
 
     @Override
@@ -54,7 +56,8 @@ public class FixWriterImpl implements FixWriter {
             msgSeqProvider.reset();
         }
         if (header.isNotSet(sendingTime)) {
-            header.set(sendingTime, ZonedDateTime.now());
+            utcFormater.now(utcTime, 0);
+            header.set(sendingTime, new String(utcTime));
         }
         int startAt = 0;
         int s = 0;
