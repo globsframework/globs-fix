@@ -31,6 +31,7 @@ public class FixSessionImpl implements FixMessageListener {
     private final FixMessageRepository fixMessageRepository;
     private final HeaderDesc headerDesc;
     private final Shutdown shutdown;
+    private final MutableGlob header;
     private long heartbeatInMSIn;
     private volatile long lastMessageReceivedTimeStampInMS = -1;
     private long heartbeatInMSOut;
@@ -90,7 +91,11 @@ public class FixSessionImpl implements FixMessageListener {
         this.clientSeqMsgId = clientSeqMsgId;
         expectedNext = clientSeqMsgId.current() + 1;
         this.option = option;
-        final Glob header = userSession.getHeader();
+        header = userSession.getHeader().duplicate();
+        header.unset(headerDesc.sendingTime());
+        header.unset(headerDesc.origSendingTime());
+        header.unset(headerDesc.isDup());
+        header.unset(headerDesc.seqNumField());
         final String senderCompId = header.get(headerDesc.senderCompIDField());
         final String targetCompId = header.get(headerDesc.targetCompIDField());
         ident = senderCompId + "-" + targetCompId;
@@ -122,8 +127,10 @@ public class FixSessionImpl implements FixMessageListener {
 
     @Override
     public void newMessage(FixMessageValue fixMessageValue) {
-        log.info(identReceive + " receive : [" + jsonOut(fixMessageValue.header(), false) + "," + jsonOut(fixMessageValue.message(), true) +
-                 ", " + jsonOut(fixMessageValue.trailer(), false) + "]");
+        if (log.isDebugEnabled()) {
+            log.debug(identReceive + " receive : [" + jsonOut(fixMessageValue.header(), false) + "," + jsonOut(fixMessageValue.message(), true) +
+                     ", " + jsonOut(fixMessageValue.trailer(), false) + "]");
+        }
 
         lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
         final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
@@ -182,7 +189,17 @@ public class FixSessionImpl implements FixMessageListener {
 
     private void connect(FixMessageValue fixMessageValue) {
         log.info(ident + " : user session connected.");
-        appMessageReceiver = userSession.connected(fixMessageValue, appWriter);
+        final AppMessageReceiver connected = userSession.connected(fixMessageValue, appWriter);
+        appMessageReceiver = new AppMessageReceiver() {
+            @Override
+            public void messages(FixMessageValue fixMessageValue) {
+                try {
+                    connected.messages(fixMessageValue);
+                } catch (Exception exception) {
+                    log.error("Unexpected user session exception : " + exception.getMessage(), exception);
+                }
+            }
+        };
     }
 
     private void consumeSeqNum() {
@@ -358,12 +375,12 @@ public class FixSessionImpl implements FixMessageListener {
         } catch (Exception _) {
         }
         closed = true;
-        final MutableGlob header = userSession.getHeader().duplicate();
+        final MutableGlob header = FixSessionImpl.this.header.duplicate();
         writer.write(header, LogoutType.create(msg), null, false);
     }
 
     private void sendReject(int seqNum, String msgType, String msg) {
-        writer.write(userSession.getHeader().duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
+        writer.write(FixSessionImpl.this.header.duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
     }
 
     class InitiatorSessionState extends AbstractSessionState {
@@ -447,7 +464,7 @@ public class FixSessionImpl implements FixMessageListener {
             this.nextExpectedPastSeqNum = expectedNext;
             this.firstReceivedSeqNum = firstReceivedSeqNum;
             log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
-            final MutableGlob header = userSession.getHeader().duplicate();
+            final MutableGlob header = FixSessionImpl.this.header.duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
             nextExpectedFuturSeqNum = firstReceivedSeqNum + 1; // the message is received
@@ -624,7 +641,7 @@ public class FixSessionImpl implements FixMessageListener {
         public ConnectedGapSessionState(int firstReceivedSeqNum) {
             this.firstReceivedSeqNum = firstReceivedSeqNum;
             log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
-            final MutableGlob header = userSession.getHeader().duplicate();
+            final MutableGlob header = FixSessionImpl.this.header.duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
             nextExpectedFuturSeqNum = firstReceivedSeqNum;
@@ -932,7 +949,7 @@ public class FixSessionImpl implements FixMessageListener {
                 return "ExpectedLogoutSessionState";
             }
         };
-        writer.write(userSession.getHeader().duplicate(),
+        writer.write(FixSessionImpl.this.header.duplicate(),
                 LogoutType.create("Logout requested."), null, false);
 
 //        while (true) {
@@ -953,14 +970,14 @@ public class FixSessionImpl implements FixMessageListener {
         if (current != 0) {
             logon.set(LogonType.nextExpectedMsgSeqNum, current + 1);
         }
-        final MutableGlob header = userSession.getHeader().duplicate();
+        final MutableGlob header = FixSessionImpl.this.header.duplicate();
         writer.write(header, logon, null, false);
         return header.get(headerDesc.seqNumField());
     }
 
     void treatTestRequest(FixMessageValue fixMessageValue) {
         final String testReqId = fixMessageValue.message().get(TestRequestType.testReqID);
-        writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(testReqId), null, false);
+        writer.write(FixSessionImpl.this.header.duplicate(), HeartbeatType.create(testReqId), null, false);
     }
 
     void treatHeartBeat(FixMessageValue fixMessageValue) {
@@ -995,14 +1012,14 @@ public class FixSessionImpl implements FixMessageListener {
         if (data != null && data.length > 0) {
             int gapfill = -1;
             for (FixMessage d : data) {
-                final MutableGlob header = d.getHeader();
+                final MutableGlob header = FixSessionImpl.this.header;
                 if (FixAdminModel.TYPES.contains(d.getBody().getType())) {
                     if (gapfill == -1) {
                         gapfill = header.get(headerDesc.seqNumField());
                     }
                 } else {
                     if (gapfill != -1) {
-                        final MutableGlob h = userSession.getHeader().duplicate()
+                        final MutableGlob h = FixSessionImpl.this.header.duplicate()
                                 .set(headerDesc.isDup(), true)
                                 .set(headerDesc.seqNumField(), gapfill);
                         writer.write(h,
@@ -1017,7 +1034,7 @@ public class FixSessionImpl implements FixMessageListener {
                 }
             }
             if (gapfill != -1) {
-                final MutableGlob h = userSession.getHeader().duplicate()
+                final MutableGlob h = FixSessionImpl.this.header.duplicate()
                         .set(headerDesc.isDup(), true)
                         .set(headerDesc.seqNumField(), gapfill);
                 writer.write(h,
@@ -1027,7 +1044,7 @@ public class FixSessionImpl implements FixMessageListener {
         } else {
             final int newSeqNo = endSeq == 0 ? clientSeqMsgId.current() + 1 : endSeq + 1;
             log.info(ident + " [resend] reset to end " + (newSeqNo));
-            final MutableGlob h = userSession.getHeader().duplicate()
+            final MutableGlob h = FixSessionImpl.this.header.duplicate()
                     .set(headerDesc.isDup(), true)
                     .set(headerDesc.seqNumField(), beginSeq);
             writer.write(h,
@@ -1048,7 +1065,7 @@ public class FixSessionImpl implements FixMessageListener {
         long when =  (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
         if (when <= 0) {
             expectedHeartbeat = UUID.randomUUID().toString();
-            writer.write(userSession.getHeader().duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
+            writer.write(FixSessionImpl.this.header.duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
             scheduleIn = scheduledExecutorService.schedule(this::checkReceived, heartbeatInMSIn, TimeUnit.MILLISECONDS);
         } else {
             scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, when, TimeUnit.MILLISECONDS);
@@ -1080,7 +1097,7 @@ public class FixSessionImpl implements FixMessageListener {
         long timeElapsedSinceWrite = System.currentTimeMillis() - lastWriteOut;
         long when = heartbeatInMSOut - timeElapsedSinceWrite - 100;
         if (when <= 0) {
-            writer.write(userSession.getHeader().duplicate(), HeartbeatType.create(), null, false);
+            writer.write(FixSessionImpl.this.header.duplicate(), HeartbeatType.create(), null, false);
             when = heartbeatInMSOut;
         }
         when = Math.max(when, 100);
@@ -1099,7 +1116,9 @@ public class FixSessionImpl implements FixMessageListener {
             if (closed) {
                 throw new RuntimeException("Session is closed");
             }
-            message.getHeader().unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
+            final MutableGlob h = message.getHeader();
+            h.unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
+            h.unset(headerDesc.sendingTime());
             writer.write(message);
         }
     }

@@ -5,11 +5,15 @@ import org.globsframework.core.utils.collections.IntHashMap;
 
 public class FixStructImpl implements FixStruct {
     private final GlobType type;
-    private final IntHashMap<FieldReader> fieldReaders;
+    private final FieldReader[] fieldReaders;
 
-    public FixStructImpl(GlobType type, IntHashMap<FieldReader> fieldReaders) {
+    public FixStructImpl(GlobType type, IntHashMap<FieldReader> fieldReadersMap) {
         this.type = type;
-        this.fieldReaders = fieldReaders;
+        int max = fieldReadersMap.keySet().stream().max(Integer::compare).orElse(0);
+        fieldReaders = new FieldReader[max + 1];
+        for (IntHashMap.Entry<FieldReader> fieldReaderEntry : fieldReadersMap.entrySet()) {
+            fieldReaders[fieldReaderEntry.getKey()] = fieldReaderEntry.getValue();
+        }
     }
 
     @Override
@@ -19,6 +23,9 @@ public class FixStructImpl implements FixStruct {
 
     @Override
     public FieldReader getFieldReader(int id) {
-        return fieldReaders.get(id);
+        if (id > fieldReaders.length - 1 || id < 0) {
+            return null;
+        }
+        return fieldReaders[id];
     }
 }

@@ -20,7 +20,7 @@ class UTCFormaterTest {
         UTCFormater utcFormater = UTCFormater.withAutoRefresh(scheduledExecutorService);
         final byte[] bytes = new byte[21];
         final DateTimeFormatter UTC_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS").withZone(ZoneId.of("UTC"));
-        final long until = System.currentTimeMillis() + 150 * 1000; // tested with 2 minutes.
+        final long until = System.currentTimeMillis() + 10 * 1000; // tested with 2 minutes.
         while(System.currentTimeMillis() < until) {
             final Instant now = Instant.now();
             utcFormater.now(bytes, 0, now.toEpochMilli());

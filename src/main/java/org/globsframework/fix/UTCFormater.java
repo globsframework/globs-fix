@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit;
 
 public class UTCFormater {
     public static final ZoneId UTC = ZoneId.of("UTC");
-    private static final DateTimeFormatter UTC_FULL = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS").withZone(UTC);
+    private static final DateTimeFormatter UTC_FULL_WITH_MILLI = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS").withZone(UTC);
+    private static final DateTimeFormatter UTC_FULL = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss").withZone(UTC);
     private static final DateTimeFormatter UTC_PARTIAL_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:").withZone(UTC);
     private static final Logger log = LoggerFactory.getLogger(UTCFormater.class);
     private final byte[][] secondesBytes;
@@ -36,7 +37,11 @@ public class UTCFormater {
     }
 
     public static ZonedDateTime toDate(String utc) {
-        return ZonedDateTime.parse(utc, UTC_FULL);
+        return toDate(utc, true);
+    }
+
+    public static ZonedDateTime toDate(String utc, boolean withMilli) {
+        return ZonedDateTime.parse(utc, withMilli ? UTC_FULL_WITH_MILLI : UTC_FULL);
     }
 
     private UTCFormater(ScheduledExecutorService scheduledExecutorService) {
@@ -103,13 +108,21 @@ public class UTCFormater {
     }
 
     public String now(long whenNearNow) {
+        return now(whenNearNow, true);
+    }
+
+    public String now(long whenNearNow, boolean withMilli) {
         byte[] data = new byte[21];
         now(data, 0, whenNearNow);
         return new String(data);
     }
 
     public String now() {
-        return now(System.currentTimeMillis());
+        return now(System.currentTimeMillis(), true);
+    }
+
+    public String now(boolean withMilli) {
+        return now(System.currentTimeMillis(), withMilli);
     }
 
     public int now(byte[] buffer, int at) {
@@ -117,6 +130,10 @@ public class UTCFormater {
     }
 
     public int now(byte[] buffer, int at, long l) {
+        return now(buffer, at, l, true);
+    }
+
+    public int now(byte[] buffer, int at, long l, boolean withMilli) {
         final PartialDate[] current = this.current;
         long timeInSecond = l / 1000;
         int seconds = (int) (timeInSecond % 60);
@@ -124,33 +141,44 @@ public class UTCFormater {
         final byte[] seconde = secondesBytes[seconds];
         final byte[] milliSeconds = millSecondesBytes[millis];
         if (current[1].inRange(l)) {
-            return fill(buffer, at, seconde, milliSeconds, current[1]);
+            return fill(buffer, at, seconde, milliSeconds, current[1], withMilli);
         }
         if (current[2].inRange(l)) {
-            return fill(buffer, at, seconde, milliSeconds, current[2]);
+            return fill(buffer, at, seconde, milliSeconds, current[2], withMilli);
         }
         if (current[0].inRange(l)) {
-            return fill(buffer, at, seconde, milliSeconds, current[0]);
+            return fill(buffer, at, seconde, milliSeconds, current[0], withMilli);
         }
-        return fallback(buffer, at, current, l, seconde, milliSeconds);
+        return fallback(buffer, at, l, withMilli);
     }
 
-    private int fallback(byte[] buffer, int at, PartialDate[] current, long l, byte[] secondes, byte[] milliSecondes) {
-        final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), UTC)
-                .format(UTC_FULL);
-        log.warn("Date " + format + " not in cache.");
-        System.arraycopy(format.getBytes(StandardCharsets.US_ASCII), 0, buffer, at, 21);
-        return at + 21;
+    private int fallback(byte[] buffer, int at, long l, boolean withMilli) {
+        if (withMilli) {
+            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), UTC)
+                    .format(UTC_FULL_WITH_MILLI);
+            log.warn("Date " + format + " not in cache.");
+            System.arraycopy(format.getBytes(StandardCharsets.US_ASCII), 0, buffer, at, 21);
+            return at + 21;
+        } else {
+            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), UTC)
+                    .format(UTC_FULL);
+            log.warn("Date " + format + " not in cache.");
+            System.arraycopy(format.getBytes(StandardCharsets.US_ASCII), 0, buffer, at, 17);
+            return at + 17;
+        }
     }
 
-    private static int fill(byte[] buffer, int at, byte[] secondes, byte[] milliSecondes, PartialDate partialDate) {
+    private static int fill(byte[] buffer, int at, byte[] secondes, byte[] milliSecondes, PartialDate partialDate, boolean withMilli) {
         System.arraycopy(partialDate.yyyy(), 0, buffer, at, 15);
         buffer[at + 15] = secondes[0];
         buffer[at + 16] = secondes[1];
-        buffer[at + 17] = '.';
-        buffer[at + 18] = milliSecondes[0];
-        buffer[at + 19] = milliSecondes[1];
-        buffer[at + 20] = milliSecondes[2];
-        return at + 21;
+        if (withMilli) {
+            buffer[at + 17] = '.';
+            buffer[at + 18] = milliSecondes[0];
+            buffer[at + 19] = milliSecondes[1];
+            buffer[at + 20] = milliSecondes[2];
+            return at + 21;
+        }
+        return at + 17;
     }
 }

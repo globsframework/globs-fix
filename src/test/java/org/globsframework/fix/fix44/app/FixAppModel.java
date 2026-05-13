@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class FixAppModel {
-    public static final GlobModel MODEL = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
+    public static final GlobModel MODEL = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE,
+            NewOrderSingleType.TYPE, ExecutionReportType.TYPE);
     public static final Set<GlobType> TYPES = new HashSet<>(MODEL.getAll());
 }

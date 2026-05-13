@@ -1,10 +1,13 @@
 package org.globsframework.fix.engine;
 
+import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.dictionary.admin.LogonType;
+import org.globsframework.fix.fix44.app.ExecutionReportType;
+import org.globsframework.fix.fix44.app.NewOrderSingleType;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
 import org.globsframework.fix.serializer.FixWriter;
@@ -37,12 +40,15 @@ public class ServerPricerUserSession implements UserSession {
                 if (message.getType() == QuoteRequestType.TYPE) {
                     final String quoteReqId = message.get(QuoteRequestType.quoteReqID);
                     pricer.subscribe(quoteReqId, value -> {
-                        appWriter.write(getHeader(),
-                                QuoteResponseType.TYPE.instantiate()
-                                        .set(QuoteResponseType.quoteRespID, quoteReqId)
-                                        .set(QuoteResponseType.bidPx, value),
-                                null, false);
+                        FixMessage fixMessage = FixMessageImpl.fromType(getHeader(), QuoteResponseType.TYPE, null);
+                        fixMessage.update(QuoteResponseType.quoteRespID, quoteReqId);
+                        fixMessage.update(QuoteResponseType.bidPx, value);
+                        appWriter.write(fixMessage);
                     });
+                } else if (message.getType() == NewOrderSingleType.TYPE) {
+                    FixMessage fixMessage = FixMessageImpl.fromType(getHeader(), ExecutionReportType.TYPE, null);
+                    fixMessage.update(ExecutionReportType.clOrdID, message.get(NewOrderSingleType.clOrdID));
+                    appWriter.write(fixMessage);
                 }
             }
         };
