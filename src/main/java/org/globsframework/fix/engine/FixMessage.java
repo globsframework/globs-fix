@@ -1,8 +1,6 @@
 package org.globsframework.fix.engine;
 
-import org.globsframework.core.metamodel.fields.BooleanField;
-import org.globsframework.core.metamodel.fields.DateTimeField;
-import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.MutableGlob;
 
 import java.time.ZonedDateTime;
@@ -22,6 +20,10 @@ public interface FixMessage {
     void update(StringField field, char value);
 
     void update(BooleanField field, boolean value);
+
+    void update(IntegerField field, int value);
+
+    void update(DoubleField field, double value);
 
     void update(DateTimeField field, ZonedDateTime value);
 

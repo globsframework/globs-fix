@@ -7,6 +7,7 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.fix.dictionary.model.FixFieldType;
+import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.fix44.components.InstrumentType;
 
 public class ExecutionReportType {
@@ -28,7 +29,7 @@ public class ExecutionReportType {
 
     static {
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("ExecutionReport");
-
+        builder.addAnnotation(FixMessageType.create("ExecutionReport"));
         orderID = builder.declareStringField("orderID", FixFieldType.create("OrderID"));
         clOrdID = builder.declareStringField("clOrdID", FixFieldType.create("ClOrdID"));
         quoteRespID = builder.declareStringField("quoteRespID", FixFieldType.create("QuoteRespID"));

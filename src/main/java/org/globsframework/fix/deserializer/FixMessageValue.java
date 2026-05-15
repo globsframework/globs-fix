@@ -4,6 +4,8 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.json.GSonUtils;
 
 public record FixMessageValue(Glob header, Glob message, Glob trailer) {
+    public FixMessageValue {
+    }
 
     @Override
     public String toString() {

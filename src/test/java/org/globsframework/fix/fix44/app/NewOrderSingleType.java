@@ -7,6 +7,7 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.fix.dictionary.model.FixFieldType;
+import org.globsframework.fix.dictionary.model.FixMessageType;
 import org.globsframework.fix.fix44.components.InstrumentType;
 
 public class NewOrderSingleType {
@@ -26,7 +27,8 @@ public class NewOrderSingleType {
     public static final StringField securitySubType;
 
     static {
-        GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NewORderSingle");
+        GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NewOrderSingle");
+        builder.addAnnotation(FixMessageType.create("NewOrderSingle"));
         clOrdID = builder.declareStringField("clOrdID", FixFieldType.create("ClOrdID"));
         symbol = builder.declareStringField("symbol", FixFieldType.create("Symbol"));
         symbolSfx = builder.declareStringField("symbolSfx", FixFieldType.create("SymbolSfx"));

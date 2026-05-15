@@ -9,12 +9,16 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.model.FixFieldType;
+import org.globsframework.json.GSonUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
 
 class FixReaderImpl implements FixReader {
+    private static final Logger log = LoggerFactory.getLogger(FixReaderImpl.class);
     private final FixStruct header;
     private final FixStruct trailer;
     private final Map<String, FixStruct> messagesFixStruct;
@@ -65,6 +69,9 @@ class FixReaderImpl implements FixReader {
             throw new RuntimeException("msgType " + msgType + " not expected.");
         }
         Glob data = readData(messageStruct);
+        if (data == null) {
+            log.warn("No data read for " + GSonUtils.encode(header));
+        }
 
         MutableGlob trailer = readData(this.trailer);
 
@@ -153,6 +160,7 @@ class FixReaderImpl implements FixReader {
         final GlobType type = fixStruct.getType();
         if (type == null) {
             skip(fixStruct);
+            log.warn("No GlobType defined.");
             return null;
         } else {
             return read(fixStruct, type.instantiate());

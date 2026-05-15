@@ -1,9 +1,7 @@
 package org.globsframework.fix.engine;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.BooleanField;
-import org.globsframework.core.metamodel.fields.DateTimeField;
-import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.MutableGlob;
 
 import java.time.ZonedDateTime;
@@ -76,6 +74,22 @@ public class FixMessageImpl implements FixMessage {
 
     @Override
     public void update(BooleanField field, boolean value) {
+        if (updatedFields != null && data.isNotSet(field)) {
+            updatedFields[count++] = (short) field.getIndex();
+        }
+        data.set(field, value);
+    }
+
+    @Override
+    public void update(IntegerField field, int value) {
+        if (updatedFields != null && data.isNotSet(field)) {
+            updatedFields[count++] = (short) field.getIndex();
+        }
+        data.set(field, value);
+    }
+
+    @Override
+    public void update(DoubleField field, double value) {
         if (updatedFields != null && data.isNotSet(field)) {
             updatedFields[count++] = (short) field.getIndex();
         }

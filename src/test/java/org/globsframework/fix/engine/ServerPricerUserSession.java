@@ -1,6 +1,5 @@
 package org.globsframework.fix.engine;
 
-import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
@@ -61,7 +60,7 @@ public class ServerPricerUserSession implements UserSession {
 
     @Override
     public Glob getLogon() {
-        return LogonType.create(1000);
+        return LogonType.create(10);
     }
 
     @Override

@@ -21,12 +21,14 @@ public class FixClient {
 
     public CompletableFuture<FixLogout> connectAsConnector() throws IOException {
         Socket socket = new Socket();
+        socket.setTcpNoDelay(true);
         socket.connect(new InetSocketAddress(host, port));
         return fixConnectionFactory.newConnection(socket, fixConnectionFactory.createAcceptor());
     }
 
     public CompletableFuture<FixLogout> connectAsInitiator(String senderComp, String targetComp) throws IOException {
         Socket socket = new Socket();
+        socket.setTcpNoDelay(true);
         socket.connect(new InetSocketAddress(host, port));
         return fixConnectionFactory.newConnection(socket, fixConnectionFactory.createInitiator(senderComp, targetComp));
     }

@@ -1,5 +1,8 @@
 package org.globsframework.fix.engine;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Snapshot;
+import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
@@ -10,6 +13,7 @@ import org.globsframework.fix.UTCFormater;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.dictionary.FixModel;
+import org.globsframework.fix.dictionary.admin.LogonType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
 import org.globsframework.fix.fix44.app.ExecutionReportType;
@@ -59,6 +63,9 @@ public class SingleOrderClient {
                         }, (senderCompID, targetCompID) -> new NoCacheDataAdapt(),
                         serializerProvider, HeaderDesc.create(HeaderType.TYPE)));
 
+        final CompletableFuture<FixLogout> fixLogoutCompletableFuture = fixClient.connectAsInitiator("AF", "BNP");
+        final FixLogout fixLogout = fixLogoutCompletableFuture.join();
+        Thread.currentThread().join();
         executorService.shutdown();
         scheduledExecutorService.shutdownNow(); 
         executorService.awaitTermination(100, TimeUnit.SECONDS);
@@ -73,6 +80,7 @@ public class SingleOrderClient {
         ExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
         private FixWriter appWriter;
         private final Map<String, Long> sentAt = new ConcurrentHashMap<>();
+        private Histogram histogram;
 
 
         public SingleOrderUserSession(String senderCompId, String targetCompId, Shutdown shutdown) {
@@ -80,6 +88,7 @@ public class SingleOrderClient {
             this.targetCompId = targetCompId;
             this.shutdown = shutdown;
             header = HeaderType.create(senderCompId, targetCompId);
+            histogram = new Histogram(new UniformReservoir());
         }
 
         @Override
@@ -93,7 +102,7 @@ public class SingleOrderClient {
 
         @Override
         public Glob getLogon() {
-            return null;
+            return LogonType.create(10);
         }
 
         @Override
@@ -101,13 +110,33 @@ public class SingleOrderClient {
             this.appWriter = appWriter;
             executorService.execute(() -> {
                 try {
-                    for (int i = 0; i < 1000; i++) {
+                    for (int i = 0; i < 10; i++) {
                         FixMessage fixMessage = FixMessageImpl.fromType(header, NewOrderSingleType.TYPE, null);
-                        fixMessage.update(NewOrderSingleType.clOrdID, "TEST_" + i);
+                        final String orderId = "WARM_" + i;
+                        fixMessage.update(NewOrderSingleType.clOrdID, orderId);
                         fixMessage.update(NewOrderSingleType.symbol, "EUR/USD");
                         appWriter.write(fixMessage);
                         Thread.sleep(1);
                     }
+
+                    for (int i = 0; i < 10; i++) {
+                        FixMessage fixMessage = FixMessageImpl.fromType(header, NewOrderSingleType.TYPE, null);
+                        final String orderId = "TEST_" + i;
+                        fixMessage.update(NewOrderSingleType.clOrdID, orderId);
+                        fixMessage.update(NewOrderSingleType.symbol, "EUR/USD");
+                        sentAt.put(orderId, System.nanoTime());
+                        appWriter.write(fixMessage);
+                        Thread.sleep(1);
+                    }
+                    final Snapshot snapshot = histogram.getSnapshot();
+                    log.warn("99.9 " + snapshot.get999thPercentile());
+                    log.warn("99 " + snapshot.get99thPercentile());
+                    log.warn("95 " + snapshot.get95thPercentile());
+                    log.warn("75 " + snapshot.get75thPercentile());
+                    log.warn("mean " + snapshot.getMean());
+                    log.warn("median " + snapshot.getMedian());
+                    log.warn("min " + snapshot.getMin());
+                    log.warn("max " + snapshot.getMax());
                 } catch (Exception e) {
                     log.error("loop break " + e.getMessage(), e);
                 }
@@ -123,7 +152,12 @@ public class SingleOrderClient {
         @Override
         public void messages(FixMessageValue fixMessageValue) {
             if (fixMessageValue.message().getType() == ExecutionReportType.TYPE) {
+                long end = System.nanoTime();
                 final String orderID = fixMessageValue.message().get(ExecutionReportType.clOrdID);
+                final Long l = sentAt.get(orderID);
+                if (l != null) {
+                    histogram.update(TimeUnit.NANOSECONDS.toMicros(end - l));
+                }
             }
         }
     }

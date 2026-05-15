@@ -122,47 +122,43 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private static String jsonOut(Glob data, boolean withKind) {
-        return data == null? "null" : GSonUtils.encode(data, withKind);
+        return data == null ? "null" : GSonUtils.encode(data, withKind);
     }
 
     @Override
     public void newMessage(FixMessageValue fixMessageValue) {
         if (log.isDebugEnabled()) {
             log.debug(identReceive + " receive : [" + jsonOut(fixMessageValue.header(), false) + "," + jsonOut(fixMessageValue.message(), true) +
-                     ", " + jsonOut(fixMessageValue.trailer(), false) + "]");
+                      ", " + jsonOut(fixMessageValue.trailer(), false) + "]");
         }
 
         lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
         final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
         sessionState = sessionState.checkSeqNum(seqNum, fixMessageValue);
-        if (log.isInfoEnabled()) {
-            log.info(ident + " state after checkSeqNum is " + sessionState.toString());
-        }
         final Glob message = fixMessageValue.message();
-        final GlobType type = message.getType();
-        if (FixAdminModel.TYPES.contains(type)) {
-            if (type == LogonType.TYPE) {
-                sessionState = sessionState.logon(seqNum, fixMessageValue);
-            } else if (type == LogoutType.TYPE) {
-                sessionState = sessionState.logout(seqNum, fixMessageValue);
-            } else if (type == HeartbeatType.TYPE) {
-                sessionState = sessionState.heartBeat(seqNum, fixMessageValue);
-            } else if (type == ResendRequestType.TYPE) {
-                sessionState = sessionState.resendRequest(seqNum, fixMessageValue);
-            } else if (type == SequenceResetType.TYPE) {
-                sessionState = sessionState.sequenceReset(seqNum, fixMessageValue);
-            } else if (type == RejectType.TYPE) {
-                sessionState = sessionState.rejectedMessage(seqNum, fixMessageValue);
-            } else if (type == TestRequestType.TYPE) {
-                sessionState = sessionState.testRequest(seqNum, fixMessageValue);
+        if (message != null) {
+            final GlobType type = message.getType();
+            if (FixAdminModel.TYPES.contains(type)) {
+                if (type == LogonType.TYPE) {
+                    sessionState = sessionState.logon(seqNum, fixMessageValue);
+                } else if (type == LogoutType.TYPE) {
+                    sessionState = sessionState.logout(seqNum, fixMessageValue);
+                } else if (type == HeartbeatType.TYPE) {
+                    sessionState = sessionState.heartBeat(seqNum, fixMessageValue);
+                } else if (type == ResendRequestType.TYPE) {
+                    sessionState = sessionState.resendRequest(seqNum, fixMessageValue);
+                } else if (type == SequenceResetType.TYPE) {
+                    sessionState = sessionState.sequenceReset(seqNum, fixMessageValue);
+                } else if (type == RejectType.TYPE) {
+                    sessionState = sessionState.rejectedMessage(seqNum, fixMessageValue);
+                } else if (type == TestRequestType.TYPE) {
+                    sessionState = sessionState.testRequest(seqNum, fixMessageValue);
+                } else {
+                    log.error("Bug : type " + type.getName() + " not managed.");
+                }
             } else {
-                log.error("Bug : type " + type.getName() + " not managed.");
+                sessionState = sessionState.appMessage(seqNum, fixMessageValue);
             }
-        } else {
-            sessionState = sessionState.appMessage(seqNum, fixMessageValue);
-        }
-        if (log.isInfoEnabled()) {
-            log.info(ident +" state is " + sessionState.toString());
         }
     }
 
@@ -223,8 +219,9 @@ public class FixSessionImpl implements FixMessageListener {
         @Override
         public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
             // FIX spec : bypass check seq num
-            if (fixMessageValue.message().getType() == SequenceResetType.TYPE
-                && !fixMessageValue.message().isTrue(SequenceResetType.gapFillFlag)) {
+            final Glob message = fixMessageValue.message();
+            if (message != null && message.getType() == SequenceResetType.TYPE
+                && !message.isTrue(SequenceResetType.gapFillFlag)) {
                 return this;
             }
             if (seqNum < expectedNext) {
@@ -237,61 +234,11 @@ public class FixSessionImpl implements FixMessageListener {
                     sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), msg);
                     SessionState previous = this;
                     // ignore the message and return to the previous state
-                    return new SessionState() {
-                        @Override
-                        public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
-                            throw new RuntimeException("Bug : should not be called");
-                        }
-
-                        @Override
-                        public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
-                            return previous;
-                        }
-
-                        @Override
-                        public String toString() {
-                            return "IgnoreSessionState";
-                        }
-                    };
+                    return new IgnoreAndReturnPrevious(previous);
                 }
             }
             if (expectedNext != seqNum) {
-               return manageGap(seqNum, fixMessageValue);
+                return manageGap(seqNum, fixMessageValue);
             }
             return this;
         }
@@ -366,7 +313,75 @@ public class FixSessionImpl implements FixMessageListener {
             treatTestRequest(fixMessageValue);
             return this;
         }
+
         abstract public SessionState gapState(int seqNum);
+
+        private class IgnoreAndReturnPrevious implements SessionState {
+            private final SessionState previous;
+
+            public IgnoreAndReturnPrevious(SessionState previous) {
+                log.info(ident + " new state IgnoreAndReturnPrevious");
+                this.previous = previous;
+            }
+
+            @Override
+            public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState sequenceReset(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState rejectedMessage(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState checkSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+                throw new RuntimeException("Bug : should not be called");
+            }
+
+            @Override
+            public SessionState heartBeat(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
+            public String toString() {
+                return "IgnoreAndReturnPrevious";
+            }
+        }
     }
 
     private void sendLogout(String msg) {
@@ -388,6 +403,8 @@ public class FixSessionImpl implements FixMessageListener {
         private Set<Integer> logonSendId = new HashSet<>();
 
         public InitiatorSessionState() {
+            log.info(ident + " new state is InitiatorSessionState");
+
             final int seqNum = sentLogon();
             logonSendId.add(seqNum);
         }
@@ -463,7 +480,7 @@ public class FixSessionImpl implements FixMessageListener {
         public WaitForLogonGapSessionState(int firstReceivedSeqNum) {
             this.nextExpectedPastSeqNum = expectedNext;
             this.firstReceivedSeqNum = firstReceivedSeqNum;
-            log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
+            log.info(ident + " New state is WaitForLogonGapSessionState :  [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
             final MutableGlob header = FixSessionImpl.this.header.duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
@@ -597,6 +614,7 @@ public class FixSessionImpl implements FixMessageListener {
             log.warn(ident + " gap in gap in past.");
             return this;
         }
+
         @Override
         public String toString() {
             return "WaitForLogonGapSessionState";
@@ -605,6 +623,11 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private class ConnectedSessionState extends AbstractSessionState {
+
+        public ConnectedSessionState() {
+            log.info(ident + " new state ConnectedSessionState");
+
+        }
 
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
@@ -640,7 +663,7 @@ public class FixSessionImpl implements FixMessageListener {
 
         public ConnectedGapSessionState(int firstReceivedSeqNum) {
             this.firstReceivedSeqNum = firstReceivedSeqNum;
-            log.info(ident + " [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
+            log.info(ident + " new state : ConnectedGapSessionState ; [GAP] send ResendRequest from " + expectedNext + " to " + (firstReceivedSeqNum - 1));
             final MutableGlob header = FixSessionImpl.this.header.duplicate();
             writer.write(header, ResendRequestType.create(expectedNext, firstReceivedSeqNum - 1), null, false);
             requestSendSeqNum = header.get(headerDesc.seqNumField());
@@ -649,7 +672,7 @@ public class FixSessionImpl implements FixMessageListener {
 
         public ConnectedGapSessionState(int requestSendSeqNum, int firstReceivedSeqNum, int nextExpectedFuturSeqNum,
                                         List<FixMessageValue> futureAppMessage, int firstGapInGap) {
-
+            log.info(ident + " new state : ConnectedGapSessionState (follow logon) ; [GAP] " + expectedNext + " to " + (firstReceivedSeqNum - 1));
             this.requestSendSeqNum = requestSendSeqNum;
             this.firstReceivedSeqNum = firstReceivedSeqNum;
             this.nextExpectedFuturSeqNum = nextExpectedFuturSeqNum;
@@ -709,8 +732,7 @@ public class FixSessionImpl implements FixMessageListener {
                 }
                 consume(seqNum);
                 return checkGapComplete(seqNum);
-            }
-            else {
+            } else {
                 expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
                 return new ConnectedSessionState();
             }
@@ -799,6 +821,10 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private class LogoutSessionState extends AbstractSessionState {
+        public LogoutSessionState() {
+            log.info(ident + " new state is LogoutSessionState");
+        }
+
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             return reject(seqNum, fixMessageValue);
@@ -854,6 +880,9 @@ public class FixSessionImpl implements FixMessageListener {
     // special behavior : we only expect logon message
     // we ignore expected next in checkSeqNum
     class AcceptorSessionState implements SessionState {
+        public AcceptorSessionState() {
+            log.info(ident + " new state is AcceptorSessionState");
+        }
 
         @Override
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
@@ -930,25 +959,7 @@ public class FixSessionImpl implements FixMessageListener {
         } catch (Exception _) {
         }
         closed = true;
-        sessionState = new LogoutSessionState() {
-
-            @Override
-            public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
-                closedCompletable.complete(true);
-                if (seqNum == expectedNext) {
-                    consumeSeqNum();
-                }
-                else {
-                    log.warn(ident + " invalid seqNum " + seqNum + " vs expected " + expectedNext);
-                }
-                return new LogoutSessionState();
-            }
-
-            @Override
-            public String toString() {
-                return "ExpectedLogoutSessionState";
-            }
-        };
+        sessionState = new LogoutSessionExpectingLogout();
         writer.write(FixSessionImpl.this.header.duplicate(),
                 LogoutType.create("Logout requested."), null, false);
 
@@ -964,6 +975,7 @@ public class FixSessionImpl implements FixMessageListener {
     private int sentLogon() {
         final MutableGlob logon = userSession.getLogon().duplicate();
         heartbeatInMSOut = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
+        log.info(ident + ": heartbeat to send " + heartbeatInMSOut + "ms");
         scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, heartbeatInMSOut, TimeUnit.MILLISECONDS);
 
         final int current = clientSeqMsgId.current();
@@ -1055,6 +1067,7 @@ public class FixSessionImpl implements FixMessageListener {
     private void managedInHeartBeat(FixMessageValue fixLogon) {
         final Glob logon = fixLogon.message();
         heartbeatInMSIn = logon.get(LogonType.heartBtInt, DELAY_BETWEEN_CONNECT_AND_LOGON) * 1000L;
+        log.info(ident + ": expected heartbeat every " + heartbeatInMSIn + "ms");
         scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, heartbeatInMSIn - 100, TimeUnit.MILLISECONDS);
     }
 
@@ -1062,8 +1075,9 @@ public class FixSessionImpl implements FixMessageListener {
         if (userSession == null) {
             return;
         }
-        long when =  (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
+        long when = (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
         if (when <= 0) {
+            log.info(ident + ": send heartbeat request");
             expectedHeartbeat = UUID.randomUUID().toString();
             writer.write(FixSessionImpl.this.header.duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
             scheduleIn = scheduledExecutorService.schedule(this::checkReceived, heartbeatInMSIn, TimeUnit.MILLISECONDS);
@@ -1097,6 +1111,7 @@ public class FixSessionImpl implements FixMessageListener {
         long timeElapsedSinceWrite = System.currentTimeMillis() - lastWriteOut;
         long when = heartbeatInMSOut - timeElapsedSinceWrite - 100;
         if (when <= 0) {
+            log.info(ident + ": send heartbeat");
             writer.write(FixSessionImpl.this.header.duplicate(), HeartbeatType.create(), null, false);
             when = heartbeatInMSOut;
         }
@@ -1120,6 +1135,29 @@ public class FixSessionImpl implements FixMessageListener {
             h.unset(headerDesc.seqNumField()); // to prevent any bug on seqNum
             h.unset(headerDesc.sendingTime());
             writer.write(message);
+        }
+    }
+
+    private class LogoutSessionExpectingLogout extends LogoutSessionState {
+
+        public LogoutSessionExpectingLogout() {
+            log.info(ident + " new state is LogoutSessionExpectingLogout");
+        }
+
+        @Override
+        public SessionState logout(int seqNum, FixMessageValue fixMessageValue) {
+            closedCompletable.complete(true);
+            if (seqNum == expectedNext) {
+                consumeSeqNum();
+            } else {
+                log.warn(ident + " invalid seqNum " + seqNum + " vs expected " + expectedNext);
+            }
+            return new LogoutSessionState();
+        }
+
+        @Override
+        public String toString() {
+            return "ExpectedLogoutSessionState";
         }
     }
 }

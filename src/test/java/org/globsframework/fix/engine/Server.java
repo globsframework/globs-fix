@@ -9,6 +9,8 @@ import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
+import org.globsframework.fix.fix44.app.ExecutionReportType;
+import org.globsframework.fix.fix44.app.NewOrderSingleType;
 import org.globsframework.fix.fix44.app.QuoteRequestType;
 import org.globsframework.fix.fix44.app.QuoteResponseType;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
@@ -27,7 +29,8 @@ public class Server {
         final ExecutorService executorService = Executors.newCachedThreadPool();
         final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
-        final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE);
+        final GlobModel globModel = new DefaultGlobModel(QuoteRequestType.TYPE, QuoteResponseType.TYPE,
+                NewOrderSingleType.TYPE, ExecutionReportType.TYPE);
 
         final DeserializerFixReaderBuilder deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
