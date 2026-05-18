@@ -14,12 +14,12 @@ import org.globsframework.fix.dictionary.model.FixMessageType;
 import java.util.*;
 
 public class DeserializerFixReaderBuilder implements FixReaderBuilder {
-    private final Map<String, FixStruct> messageFixStruct;
+    private final Map<String, FixMessageStructure> messageFixStruct;
     private final FixStruct fixHeader;
     private final FixStruct fixTrailer;
     private final FixModel fixModel;
 
-    private DeserializerFixReaderBuilder(Map<String, FixStruct> messageFixStruct, FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel) {
+    private DeserializerFixReaderBuilder(Map<String, FixMessageStructure> messageFixStruct, FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel) {
         this.messageFixStruct = messageFixStruct;
         this.fixHeader = fixHeader;
         this.fixTrailer = fixTrailer;
@@ -40,34 +40,35 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                 messageTypeMap.put(messageType.get(FixMessageType.name), globType);
             }
         }
-        Map<String, FixStruct> messageFixStruct = new HashMap<>();
-        Map<String, FixStruct> namedFixStruct = new HashMap<>();
+        Map<String, FixMessageStructure> messageFixStruct = new HashMap<>();
         final Collection<FixMessageDescriptor> messages = fixModel.getMessages();
         for (FixMessageDescriptor message : messages) {
             final String name = message.getName();
+            final GlobType type = messageTypeMap.get(name);
             messageFixStruct.put(message.getMsgType(),
-                    computeFixStruct(namedFixStruct, messageTypeMap.get(name), fixModel.getMessage(name), fixFieldAccessor));
+                    new FixMessageStructure(message.getName(), type,
+                            computeFixStruct(type, fixModel.getMessage(name), fixFieldAccessor)));
         }
 
         final FixHeader header = fixModel.getHeader();
         final FixTrailer trailer = fixModel.getTrailer();
-        final FixStruct fixHeader = computeFixStruct(namedFixStruct, headerType, header, fixFieldAccessor);
-        final FixStruct fixTrailer = computeFixStruct(namedFixStruct, trailerType, trailer, fixFieldAccessor);
+        final FixStruct fixHeader = computeFixStruct(headerType, header, fixFieldAccessor);
+        final FixStruct fixTrailer = computeFixStruct(trailerType, trailer, fixFieldAccessor);
         return new DeserializerFixReaderBuilder(messageFixStruct, fixHeader, fixTrailer, fixModel);
     }
 
-    private static FixStruct computeFixStruct(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message, FixFieldAccessor fixFieldAccessor) {
-        return new FixStructImpl(type, getFieldReaderIntHashMap(namedFixStruct, type, message, fixFieldAccessor, new IntHashMap<>()));
+    private static FixStruct computeFixStruct(GlobType type, FixElementContainer message, FixFieldAccessor fixFieldAccessor) {
+        return new FixStructImpl(type, getFieldReaderIntHashMap(type, message, fixFieldAccessor, new IntHashMap<>()));
     }
 
-    private static IntHashMap<FieldReader> getFieldReaderIntHashMap(Map<String, FixStruct> namedFixStruct, GlobType type, FixElementContainer message,
+    private static IntHashMap<FieldReader> getFieldReaderIntHashMap(GlobType type, FixElementContainer message,
                                                                     FixFieldAccessor fixFieldAccessor, IntHashMap<FieldReader> fieldReaders) {
         final Map<String, Field> fixFieldAccessorFixField = fixFieldAccessor.getFixField(type);
         final List<FixElement> elements = message.getElements();
         for (FixElement element : elements) {
             switch (element) {
                 case FixComponent component -> {
-                    getFieldReaderIntHashMap(namedFixStruct, type, component, fixFieldAccessor, fieldReaders);
+                    getFieldReaderIntHashMap(type, component, fixFieldAccessor, fieldReaders);
                 }
                 case FixField fixField -> {
                     final Field field = fixFieldAccessorFixField.get(fixField.getName());
@@ -103,7 +104,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                                                                    + countField.getName());
                                     }
                                     found = true;
-                                    final FixStruct fixStruct = computeFixStruct(namedFixStruct,
+                                    final FixStruct fixStruct = computeFixStruct(
                                             globArrayField.getTargetType(), fixGroup, fixFieldAccessor);
                                     fieldReaders.put(countField.getId(), new FieldGroupReader(globArrayField, fixStruct));
                                 }
@@ -111,7 +112,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                         }
                     }
                     if (!found) {
-                        final FixStruct fixStruct = computeFixStruct(namedFixStruct, null, fixGroup, fixFieldAccessor);
+                        final FixStruct fixStruct = computeFixStruct(null, fixGroup, fixFieldAccessor);
                         FieldReader groupFieldReader = new NoFieldGroupReader(fixStruct);
                         fieldReaders.put(countField.getId(), groupFieldReader);
                     }

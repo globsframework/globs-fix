@@ -35,7 +35,9 @@ public class ServerPricerUserSession implements UserSession {
             @Override
             public void messages(FixMessageValue fixMessageValue) {
                 final Glob message = fixMessageValue.message();
-                log.info("Got message " + GSonUtils.encode(message) + " " + GSonUtils.encode(fixMessageValue.header()));
+                if (log.isDebugEnabled()) {
+                    log.debug("Got message " + GSonUtils.encode(message) + " " + GSonUtils.encode(fixMessageValue.header()));
+                }
                 if (message.getType() == QuoteRequestType.TYPE) {
                     final String quoteReqId = message.get(QuoteRequestType.quoteReqID);
                     pricer.subscribe(quoteReqId, value -> {

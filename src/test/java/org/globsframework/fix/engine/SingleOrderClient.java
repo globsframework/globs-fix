@@ -110,7 +110,7 @@ public class SingleOrderClient {
             this.appWriter = appWriter;
             executorService.execute(() -> {
                 try {
-                    for (int i = 0; i < 10; i++) {
+                    for (int i = 0; i < 1000; i++) {
                         FixMessage fixMessage = FixMessageImpl.fromType(header, NewOrderSingleType.TYPE, null);
                         final String orderId = "WARM_" + i;
                         fixMessage.update(NewOrderSingleType.clOrdID, orderId);
@@ -119,7 +119,9 @@ public class SingleOrderClient {
                         Thread.sleep(1);
                     }
 
-                    for (int i = 0; i < 10; i++) {
+                    System.out.println("------------------------------------------------");
+
+                    for (int i = 0; i < 10000; i++) {
                         FixMessage fixMessage = FixMessageImpl.fromType(header, NewOrderSingleType.TYPE, null);
                         final String orderId = "TEST_" + i;
                         fixMessage.update(NewOrderSingleType.clOrdID, orderId);

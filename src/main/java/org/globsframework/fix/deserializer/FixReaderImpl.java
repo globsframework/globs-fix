@@ -21,7 +21,9 @@ class FixReaderImpl implements FixReader {
     private static final Logger log = LoggerFactory.getLogger(FixReaderImpl.class);
     private final FixStruct header;
     private final FixStruct trailer;
-    private final Map<String, FixStruct> messagesFixStruct;
+    private final Map<String, FixMessageStructure> messagesFixStruct;
+    private final FixMessageStructure[] oneLetter;
+    private final FixMessageStructure[][] twoLetters;
     private final ByteReader reader;
     private final byte[] buffer = new byte[10024];
     private final FixModel fixModel;
@@ -39,8 +41,9 @@ class FixReaderImpl implements FixReader {
     private int messageLen;
     private int currentReadId;
     private String msgType;
+    private FixMessageStructure currentFixStruct;
 
-    public FixReaderImpl(ByteReader reader, Map<String, FixStruct> messageFixStruct,
+    public FixReaderImpl(ByteReader reader, Map<String, FixMessageStructure> messageFixStruct,
                          FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel, byte sep) {
         this.reader = reader;
         this.trailer = fixTrailer;
@@ -59,16 +62,32 @@ class FixReaderImpl implements FixReader {
                                                                  .map(FixFieldType.name).filter(s -> s.equals("CheckSum")).isPresent())
                                                     .findFirst().map(Field::asIntegerField)
                                                     .orElse(null) : null;
+
+        oneLetter = new FixMessageStructure[256];
+        twoLetters = new FixMessageStructure[256][];
+        for (Map.Entry<String, FixMessageStructure> entry : messageFixStruct.entrySet()) {
+            final String key = entry.getKey();
+            final int firstLetter = key.charAt(0) & 0xFF;
+            if (key.length() == 1) {
+                oneLetter[firstLetter] = entry.getValue();
+            } else if (key.length() == 2) {
+                FixMessageStructure[] twoLetter = twoLetters[firstLetter];
+                if (twoLetter == null) {
+                    twoLetter = new FixMessageStructure[256];
+                    twoLetters[firstLetter] = twoLetter;
+                }
+                twoLetter[key.charAt(1) & 0xff] = entry.getValue();
+            }
+        }
     }
 
     @Override
     public FixMessageValue read() {
         Glob header = readHeader();
-        final FixStruct messageStruct = messagesFixStruct.get(msgType);
-        if (messageStruct == null) {
+        if (currentFixStruct == null) {
             throw new RuntimeException("msgType " + msgType + " not expected.");
         }
-        Glob data = readData(messageStruct);
+        Glob data = readData(currentFixStruct.fixStruct());
         if (data == null) {
             log.warn("No data read for " + GSonUtils.encode(header));
         }
@@ -138,7 +157,7 @@ class FixReaderImpl implements FixReader {
         }
         int msgTypeId = Utils.getIntAt(startAt, equalAt, buffer);
         checkId(msgTypeId, 35);
-        msgType = new String(buffer, equalAt + 1, endAt - equalAt - 1, StandardCharsets.US_ASCII);
+        initMsgType();
 
         if (!readNext()) {
             return null;
@@ -148,6 +167,27 @@ class FixReaderImpl implements FixReader {
             glob.set(msgTypeField, msgType);
         }
         return glob;
+    }
+
+    private void initMsgType() {
+        final int len = endAt - equalAt - 1;
+        if (len == 1) {
+            currentFixStruct = oneLetter[buffer[equalAt + 1] & 0xFF];
+        } else if (len == 2) {
+            final FixMessageStructure[] twoLetter = twoLetters[buffer[equalAt + 1]];
+            if (twoLetter == null) {
+                currentFixStruct = null;
+            } else {
+                currentFixStruct = twoLetter[buffer[equalAt + 2]];
+            }
+        } else {
+            currentFixStruct = messagesFixStruct.get(new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII));
+        }
+        if (currentFixStruct != null) {
+            msgType = currentFixStruct.name();
+        } else {
+            msgType = new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII);
+        }
     }
 
     private static void checkId(int actualId, int wantedId) {
