@@ -174,11 +174,11 @@ class FixReaderImpl implements FixReader {
         if (len == 1) {
             currentFixStruct = oneLetter[buffer[equalAt + 1] & 0xFF];
         } else if (len == 2) {
-            final FixMessageStructure[] twoLetter = twoLetters[buffer[equalAt + 1]];
+            final FixMessageStructure[] twoLetter = twoLetters[buffer[equalAt + 1] & 0xFF];
             if (twoLetter == null) {
                 currentFixStruct = null;
             } else {
-                currentFixStruct = twoLetter[buffer[equalAt + 2]];
+                currentFixStruct = twoLetter[buffer[equalAt + 2] & 0xFF];
             }
         } else {
             currentFixStruct = messagesFixStruct.get(new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII));
