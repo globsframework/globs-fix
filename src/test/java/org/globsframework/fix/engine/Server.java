@@ -37,7 +37,8 @@ public class Server {
                 UTCFormater.withAutoRefresh(scheduledExecutorService));
         final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
-        final SingleSerializerProvider serializerProvider = new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
+        final SingleSerializerProvider serializerProvider =
+                new SingleSerializerProvider(deserializerFixReaderBuilder, serializerFixWriterBuilder, headerDesc);
 
         final FixServer fixServer = new FixServer("0.0.0.0", 5456,
                 new FixConnectionFactory(new FixServerTest.LoggerPublish(), executorService, scheduledExecutorService,

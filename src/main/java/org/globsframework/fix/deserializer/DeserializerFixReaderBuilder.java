@@ -46,7 +46,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
             final String name = message.getName();
             final GlobType type = messageTypeMap.get(name);
             messageFixStruct.put(message.getMsgType(),
-                    new FixMessageStructure(message.getName(), type,
+                    new FixMessageStructure(message.getMsgType(), type,
                             computeFixStruct(type, fixModel.getMessage(name), fixFieldAccessor)));
         }
 

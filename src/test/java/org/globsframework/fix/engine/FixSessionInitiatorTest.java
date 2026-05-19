@@ -69,7 +69,7 @@ class FixSessionInitiatorTest {
                 fixMessageRepository.getSelfMsgSeqProvider(), fixMessageRepository.getCachedData(),
                 HeaderType.getHeaderDesc(), () -> {
         },
-                true, new FixSessionImpl.Option(-1, -1, 0));
+                true, new FixSessionImpl.Option(-1));
     }
 
     @Test

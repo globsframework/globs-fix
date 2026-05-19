@@ -57,10 +57,9 @@ public class FixSessionImpl implements FixMessageListener {
         onClose.add(runnable);
     }
 
-    public record Option(int delayBeforeForceLogout,
-                         int delayBeforeResendLogonInS, int maxRetryLogon) {
+    public record Option(int delayBeforeForceLogout) {
         public static Option def() {
-            return new Option(1, 1, 3);
+            return new Option(1);
         }
     }
 

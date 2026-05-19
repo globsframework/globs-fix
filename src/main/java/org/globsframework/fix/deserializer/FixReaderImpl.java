@@ -184,7 +184,7 @@ class FixReaderImpl implements FixReader {
             currentFixStruct = messagesFixStruct.get(new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII));
         }
         if (currentFixStruct != null) {
-            msgType = currentFixStruct.name();
+            msgType = currentFixStruct.fixCode();
         } else {
             msgType = new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII);
         }
