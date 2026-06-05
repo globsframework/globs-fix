@@ -69,9 +69,9 @@ public class NewAcceptorFixConnectionImpl implements NewFixConnection {
                     if (equalAt != -1) {
                         final int id = Utils.getIntAt(start, equalAt, buffer);
                         if (id == this.targetCompID) {
-                            targetCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
+                            targetCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.ISO_8859_1);
                         } else if (id == sendCompID) {
-                            senderCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.US_ASCII);
+                            senderCompID = new String(buffer, equalAt + 1, i - equalAt - 1, StandardCharsets.ISO_8859_1);
                         }
                     } else {
                         throw new RuntimeException("Invalid FIX message format: missing '=' before separator");

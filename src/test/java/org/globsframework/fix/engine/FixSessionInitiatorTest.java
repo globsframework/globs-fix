@@ -5,7 +5,7 @@ import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.UTCFormater;
+import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixMessageValue;
 import org.globsframework.fix.deserializer.FixReader;
@@ -50,7 +50,7 @@ class FixSessionInitiatorTest {
 
         globModel = new DefaultGlobModel(QuoteRequestType.TYPE);
         fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
-                UTCFormater.withAutoRefresh(executorService));
+                FormatDateTime.autoRefreshUTC(executorService));
 
         fixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         completableByteReader = new CompletableByteReader();

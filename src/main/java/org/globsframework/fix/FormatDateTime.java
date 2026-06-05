@@ -12,12 +12,17 @@ import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class UTCFormater {
-    public static final ZoneId UTC = ZoneId.of("UTC");
-    private static final DateTimeFormatter UTC_FULL_WITH_MILLI = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS").withZone(UTC);
-    private static final DateTimeFormatter UTC_FULL = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss").withZone(UTC);
-    private static final DateTimeFormatter UTC_PARTIAL_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:").withZone(UTC);
-    private static final Logger log = LoggerFactory.getLogger(UTCFormater.class);
+/*
+Format must end with ss (for secondes)
+millsecond will be added in the form '.SSS'
+ */
+
+public class FormatDateTime {
+    private static final Logger log = LoggerFactory.getLogger(FormatDateTime.class);
+    private final ZoneId zoneId;
+    private final DateTimeFormatter dateFullWithMilli;
+    private final DateTimeFormatter dateFull;
+    private final DateTimeFormatter datePartialFormat;
     private final byte[][] secondesBytes;
     private final byte[][] millSecondesBytes;
     private volatile PartialDate[] current;
@@ -28,23 +33,51 @@ public class UTCFormater {
         }
     }
 
-    public static UTCFormater withAutoRefresh(ScheduledExecutorService scheduledExecutorService) {
-        return new UTCFormater(scheduledExecutorService);
+    public static class Builder {
+        private String pattern;
+        private ZoneId zoneId;
+
+        public static Builder create(String pattern, ZoneId zoneId) {
+            return new Builder().withTimeZone(pattern, zoneId);
+        }
+
+        public Builder withTimeZone(String pattern, ZoneId zoneId) {
+            this.pattern = pattern;
+            this.zoneId = zoneId;
+            return this;
+        }
+
+        public FormatDateTime withAutoRefresh(ScheduledExecutorService scheduledExecutorService){
+            return new FormatDateTime(scheduledExecutorService, pattern, zoneId);
+        }
+
+        public FormatDateTime shouldRefresh() {
+            return new FormatDateTime(null, pattern, zoneId);
+        }
     }
 
-    public static UTCFormater shouldRefresh() {
-        return new UTCFormater(null);
+    public static FormatDateTime autoRefreshUTC(ScheduledExecutorService scheduledExecutorService) {
+        return Builder.create("yyyyMMdd-HH:mm:ss", ZoneId.of("UTC")).withAutoRefresh(scheduledExecutorService);
     }
 
-    public static ZonedDateTime toDate(String utc) {
+    public static FormatDateTime shouldRefreshUTC() {
+        return Builder.create("yyyyMMdd-HH:mm:ss", ZoneId.of("UTC")).shouldRefresh();
+    }
+
+    public ZonedDateTime toDate(String utc) {
         return toDate(utc, true);
     }
 
-    public static ZonedDateTime toDate(String utc, boolean withMilli) {
-        return ZonedDateTime.parse(utc, withMilli ? UTC_FULL_WITH_MILLI : UTC_FULL);
+    public ZonedDateTime toDate(String utc, boolean withMilli) {
+        return ZonedDateTime.parse(utc, withMilli ? dateFullWithMilli : dateFull);
     }
 
-    private UTCFormater(ScheduledExecutorService scheduledExecutorService) {
+    private FormatDateTime(ScheduledExecutorService scheduledExecutorService, String pattern, ZoneId zoneId) {
+        this.zoneId = zoneId;
+        dateFullWithMilli = DateTimeFormatter.ofPattern(pattern + ".SSS").withZone(zoneId);
+        dateFull = DateTimeFormatter.ofPattern(pattern).withZone(zoneId);
+        datePartialFormat = DateTimeFormatter.ofPattern(pattern.substring(0, pattern.length() - 2)).withZone(zoneId);
+
         millSecondesBytes = new byte[1000][];
         secondesBytes = new byte[60][];
         initArray();
@@ -66,8 +99,8 @@ public class UTCFormater {
 
     PartialDate create(ZonedDateTime now, int offset) {
         now = now.plusMinutes(offset);
-        final String format = UTC_PARTIAL_FORMAT.format(now);
-        final byte[] bytes = format.getBytes(StandardCharsets.US_ASCII);
+        final String format = datePartialFormat.format(now);
+        final byte[] bytes = format.getBytes(StandardCharsets.ISO_8859_1);
         final long epochMilli = now.toInstant().toEpochMilli();
         return new PartialDate(bytes, epochMilli, epochMilli + 60_000);
     }
@@ -75,11 +108,11 @@ public class UTCFormater {
     private void initArray() {
         for (int i = 0; i < 1000; i++) {
             millSecondesBytes[i] = (i == 0 ? "000" : i < 10 ? "00" + i : i < 100 ? "0" + i : "" + i)
-                    .getBytes(StandardCharsets.US_ASCII);
+                    .getBytes(StandardCharsets.ISO_8859_1);
         }
         for (int i = 0; i < 60; i++) {
             secondesBytes[i] = (i == 0 ? "00" : i < 10 ? "0" + i : "" + i)
-                    .getBytes(StandardCharsets.US_ASCII);
+                    .getBytes(StandardCharsets.ISO_8859_1);
         }
     }
 
@@ -154,16 +187,16 @@ public class UTCFormater {
 
     private int fallback(byte[] buffer, int at, long l, boolean withMilli) {
         if (withMilli) {
-            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), UTC)
-                    .format(UTC_FULL_WITH_MILLI);
+            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), zoneId)
+                    .format(dateFullWithMilli);
             log.warn("Date " + format + " not in cache.");
-            System.arraycopy(format.getBytes(StandardCharsets.US_ASCII), 0, buffer, at, 21);
+            System.arraycopy(format.getBytes(StandardCharsets.ISO_8859_1), 0, buffer, at, 21);
             return at + 21;
         } else {
-            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), UTC)
-                    .format(UTC_FULL);
+            final String format = ZonedDateTime.ofInstant(Instant.ofEpochMilli(l), zoneId)
+                    .format(dateFull);
             log.warn("Date " + format + " not in cache.");
-            System.arraycopy(format.getBytes(StandardCharsets.US_ASCII), 0, buffer, at, 17);
+            System.arraycopy(format.getBytes(StandardCharsets.ISO_8859_1), 0, buffer, at, 17);
             return at + 17;
         }
     }

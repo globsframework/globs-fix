@@ -26,13 +26,9 @@ public class UtilsBenchmark {
         buffer = new byte[size + 10];
     }
 
-    @Benchmark
-    public int testCopy() {
-        return Utils.copy(buffer, at, size);
-    }
 
     @Benchmark
     public int testFastCopy() {
-        return Utils.fastCopy(buffer, at, size);
+        return Utils.transfertInt(buffer, at, size);
     }
 }

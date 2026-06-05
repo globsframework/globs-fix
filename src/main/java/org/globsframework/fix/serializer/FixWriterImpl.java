@@ -5,7 +5,7 @@ import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.fix.UTCFormater;
+import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.engine.FixMessage;
@@ -26,12 +26,12 @@ public class FixWriterImpl implements FixWriter {
     private final IntegerField msgSeqNum;
     private final IntegerField checksum;
     private final StringField sendingTime;
-    private final UTCFormater utcFormater;
+    private final FormatDateTime utcFormater;
 
     public FixWriterImpl(FixModel fixModel, Publish publish, Map<GlobType, MessageFieldWrite> writeMap,
                          Map<GlobType, byte[]> typeToMessageType, MsgSeqProvider msgSeqProvider,
-                         IntegerField checksum, HeaderDesc headerDesc, UTCFormater utcFormater) {
-        version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
+                         IntegerField checksum, HeaderDesc headerDesc, FormatDateTime utcFormater) {
+        version = fixModel.getVersion().getBytes(StandardCharsets.ISO_8859_1);
         this.publish = publish;
         this.writeMap = writeMap;
         this.typeToMessageType = typeToMessageType;
@@ -80,13 +80,13 @@ public class FixWriterImpl implements FixWriter {
             buffer[at++] = 0x1;
             buffer[at++] = '9';
             buffer[at++] = '=';
-            at = Utils.fastCopy(buffer, at, len);
+            at = Utils.transfertInt(buffer, at, len);
             buffer[at++] = 0x1;
 
             buffer[at++] = '3';
             buffer[at++] = '5';
             buffer[at++] = '=';
-            at = Utils.fastCopy(buffer, at, msgType);
+            at = Utils.transfert(buffer, at, msgType);
             buffer[at++] = 0x1;
 
             if (at != OFFSET) {

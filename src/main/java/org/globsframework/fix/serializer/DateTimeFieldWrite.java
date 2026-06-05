@@ -1,12 +1,10 @@
 package org.globsframework.fix.serializer;
 
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.globaccessor.get.GlobGetBooleanAccessor;
 import org.globsframework.core.model.globaccessor.get.GlobGetDateTimeAccessor;
 import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -18,7 +16,7 @@ final class DateTimeFieldWrite implements FieldWrite {
     private final byte[] id;
 
     public DateTimeFieldWrite(int id, GlobGetDateTimeAccessor getAccessor) {
-        this.id = Integer.toString(id).getBytes(StandardCharsets.US_ASCII);
+        this.id = Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1);
         accessor = getAccessor;
     }
 
@@ -26,10 +24,10 @@ final class DateTimeFieldWrite implements FieldWrite {
     public int writeAt(byte[] buffer, int at, Glob data) {
         final ZonedDateTime value = accessor.get(data);
         if (value != null) {
-            at = Utils.fastCopy(buffer, at, id);
+            at = Utils.transfert(buffer, at, id);
             buffer[at++] = '=';
             final ZonedDateTime dateTime = value.withZoneSameInstant(GMT);
-            at = Utils.fastCopy(buffer, at, dateTime.getYear());
+            at = Utils.transfertInt(buffer, at, dateTime.getYear());
             final int month = dateTime.getMonthValue();
             at = write2Char(buffer, at, month);
             final int dayOfMonth = dateTime.getDayOfMonth();
@@ -48,9 +46,9 @@ final class DateTimeFieldWrite implements FieldWrite {
                 buffer[at++] = (byte) ('0' + milli);
             } else if (milli < 100) {
                 buffer[at++] = '0';
-                at = Utils.fastCopy(buffer, at, milli);
+                at = Utils.transfertInt(buffer, at, milli);
             } else {
-                at = Utils.fastCopy(buffer, at, milli);
+                at = Utils.transfertInt(buffer, at, milli);
             }
             buffer[at++] = 0x1;
         }
@@ -63,7 +61,7 @@ final class DateTimeFieldWrite implements FieldWrite {
             buffer[at++] = (byte) ('0' + dayOfMonth);
         }
         else {
-            at = Utils.fastCopy(buffer, at, dayOfMonth);
+            at = Utils.transfertInt(buffer, at, dayOfMonth);
         }
         return at;
     }

@@ -5,7 +5,7 @@ import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.utils.Ref;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.UTCFormater;
+import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -56,7 +56,7 @@ class FixServerTest {
         scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
         deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
-                UTCFormater.withAutoRefresh(scheduledExecutorService));
+                FormatDateTime.autoRefreshUTC(scheduledExecutorService));
         headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
 //        final BasicMsgSeqProvider serverMsgSeqProvider = new BasicMsgSeqProvider();

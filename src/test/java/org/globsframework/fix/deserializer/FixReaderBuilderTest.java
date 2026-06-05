@@ -12,7 +12,7 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.UTCFormater;
+import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.admin.HeartbeatType;
 import org.globsframework.fix.dictionary.admin.LogonType;
@@ -50,7 +50,7 @@ class FixReaderBuilderTest {
 
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE);
         final SerializerFixWriterBuilder fixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel,
-                HeaderType.TYPE, TrailerType.TYPE, UTCFormater.shouldRefresh());
+                HeaderType.TYPE, TrailerType.TYPE, FormatDateTime.shouldRefreshUTC());
 
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {
@@ -60,7 +60,7 @@ class FixReaderBuilderTest {
             }
         }, new BasicMsgSeqProvider());
 
-        UTCFormater utcFormater = UTCFormater.shouldRefresh();
+        FormatDateTime utcFormater = FormatDateTime.shouldRefreshUTC();
         final ZonedDateTime headerTime = ZonedDateTime.parse("2026-04-01T20:33:30.123+02:00[Europe/Paris]");
         final String utc = utcFormater.now(headerTime.toInstant().toEpochMilli());
         writer.write(HeaderType.create("AA", "BB")
@@ -86,7 +86,7 @@ class FixReaderBuilderTest {
             assertEquals("req1", read.message().get(HeartbeatType.testReqID));
             assertEquals("0", read.header().get(HeaderType.msgType));
             assertEquals(headerTime.withZoneSameInstant(ZoneId.of("UTC")),
-                    UTCFormater.toDate(read.header().get(HeaderType.sendingTime)));
+                    utcFormater.toDate(read.header().get(HeaderType.sendingTime)));
 
             assertNotNull(read.trailer());
             assertEquals("sign", read.trailer().get(TrailerType.Signature));
@@ -115,7 +115,7 @@ class FixReaderBuilderTest {
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE, LogonType.TYPE);
         final SerializerFixWriterBuilder fixWriterBuilder =
                 SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
-                        UTCFormater.shouldRefresh());
+                        FormatDateTime.shouldRefreshUTC());
 
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {
@@ -159,7 +159,7 @@ class FixReaderBuilderTest {
                 IndicationOfInterestType.TYPE, IndicationOfInterestType.InstrumentType.TYPE, IndicationOfInterestType.SecurityAltType.TYPE);
         final SerializerFixWriterBuilder fixWriterBuilder =
                 SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
-                        UTCFormater.shouldRefresh());
+                        FormatDateTime.shouldRefreshUTC());
 
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = fixWriterBuilder.createWriter(new Publish() {

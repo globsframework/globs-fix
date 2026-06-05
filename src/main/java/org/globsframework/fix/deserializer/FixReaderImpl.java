@@ -47,7 +47,7 @@ class FixReaderImpl implements FixReader {
                          FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel, byte sep) {
         this.reader = reader;
         this.trailer = fixTrailer;
-        version = fixModel.getVersion().getBytes(StandardCharsets.US_ASCII);
+        version = fixModel.getVersion().getBytes(StandardCharsets.ISO_8859_1);
         this.messagesFixStruct = messageFixStruct;
         this.header = fixHeader;
         this.fixModel = fixModel;
@@ -181,12 +181,12 @@ class FixReaderImpl implements FixReader {
                 currentFixStruct = twoLetter[buffer[equalAt + 2] & 0xFF];
             }
         } else {
-            currentFixStruct = messagesFixStruct.get(new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII));
+            currentFixStruct = messagesFixStruct.get(new String(buffer, equalAt + 1, len, StandardCharsets.ISO_8859_1));
         }
         if (currentFixStruct != null) {
             msgType = currentFixStruct.fixCode();
         } else {
-            msgType = new String(buffer, equalAt + 1, len, StandardCharsets.US_ASCII);
+            msgType = new String(buffer, equalAt + 1, len, StandardCharsets.ISO_8859_1);
         }
     }
 

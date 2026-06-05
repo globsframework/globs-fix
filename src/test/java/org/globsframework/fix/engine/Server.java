@@ -4,7 +4,7 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.fix.HeaderType;
 import org.globsframework.fix.TrailerType;
-import org.globsframework.fix.UTCFormater;
+import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
@@ -34,7 +34,7 @@ public class Server {
 
         final DeserializerFixReaderBuilder deserializerFixReaderBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE);
         final SerializerFixWriterBuilder serializerFixWriterBuilder = SerializerFixWriterBuilder.create(fixModel, globModel, HeaderType.TYPE, TrailerType.TYPE,
-                UTCFormater.withAutoRefresh(scheduledExecutorService));
+                FormatDateTime.autoRefreshUTC(scheduledExecutorService));
         final HeaderDesc headerDesc = HeaderDesc.create(HeaderType.TYPE);
 
         final SingleSerializerProvider serializerProvider =
