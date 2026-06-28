@@ -10,6 +10,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FixServer {
@@ -21,7 +22,7 @@ public class FixServer {
     private CompletableFuture<Boolean> running = new CompletableFuture<>();
     private volatile boolean stopRequested = false;
     private final AtomicBoolean stoped = new AtomicBoolean();
-    private List<FixLogout> connections = new ArrayList<FixLogout>();
+    private List<FixLogout> connections = new CopyOnWriteArrayList<>();
     private FixConnectionFactory fixConnectionFactory;
 
     public FixServer(String listenInterface, int port, FixConnectionFactory fixConnectionFactory) throws IOException {
@@ -96,7 +97,7 @@ public class FixServer {
         }
 
         long endAt = System.currentTimeMillis() + 1000;
-        while (!stoped.get() && System.currentTimeMillis() > endAt) {
+        while (!stoped.get() && System.currentTimeMillis() < endAt) {
             try {
                 Thread.sleep(10);
             } catch (InterruptedException e) {

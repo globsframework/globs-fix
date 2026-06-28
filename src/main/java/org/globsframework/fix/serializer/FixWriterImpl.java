@@ -94,7 +94,7 @@ public class FixWriterImpl implements FixWriter {
             }
             long sum = 0;
             for (int i = startAt; i < endAt; i++) {
-                sum += buffer[i];
+                sum += (buffer[i] & 0xFF);
             }
             at = endAt;
             buffer[at++] = '1';

@@ -48,12 +48,11 @@ public class NewAcceptorFixConnectionImpl implements NewFixConnection {
 
     private FixEngineInit.HeaderFixInfo getHeaderFixInfo(ByteReader byteReader) {
         byte[] buffer = new byte[1024];
-        int offset = 0;
         int len = 0;
         String targetCompID = null;
         String senderCompID = null;
-        while (targetCompID == null && senderCompID == null) {
-            final int read = byteReader.read(buffer, offset, buffer.length - offset);
+        while (targetCompID == null || senderCompID == null) {
+            final int read = byteReader.read(buffer, len, buffer.length - len);
             if (read < 1) {
                 throw new RuntimeException("EOF");
             }

@@ -7,7 +7,7 @@ public class BasicMsgSeqProvider implements MsgSeqProvider {
     private boolean closed = false;
 
     @Override
-    public int current() {
+    synchronized public int current() {
         return counter;
     }
 

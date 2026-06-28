@@ -36,7 +36,7 @@ public class FixSessionImpl implements FixMessageListener {
     private volatile long lastMessageReceivedTimeStampInMS = -1;
     private long heartbeatInMSOut;
     private volatile long lastWriteOut = -1;
-    private String expectedHeartbeat;
+    private volatile String expectedHeartbeat;
     private ClientSeqMsgId clientSeqMsgId;
     private ScheduledFuture<?> scheduleOut;
     private ScheduledFuture<?> scheduleIn;
@@ -47,7 +47,7 @@ public class FixSessionImpl implements FixMessageListener {
     private final Option option;
     private List<Runnable> onClose = new ArrayList<>();
     private CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
-    private SessionState sessionState;
+    private volatile SessionState sessionState;
 
     synchronized public void registerOnClosed(Runnable runnable) {
         if (closed) {
@@ -388,9 +388,9 @@ public class FixSessionImpl implements FixMessageListener {
             userSession.logout().get(1, TimeUnit.SECONDS);
         } catch (Exception _) {
         }
-        closed = true;
         final MutableGlob header = FixSessionImpl.this.header.duplicate();
         writer.write(header, LogoutType.create(msg), null, false);
+        closed = true;
     }
 
     private void sendReject(int seqNum, String msgType, String msg) {
@@ -490,6 +490,7 @@ public class FixSessionImpl implements FixMessageListener {
         public SessionState logon(int seqNum, FixMessageValue fixMessageValue) {
             managedInHeartBeat(fixMessageValue);
             consume(seqNum);
+            connect(fixMessageValue);
             for (FixMessageValue messageValue : pastAppMessage) {
                 appMessageReceiver.messages(messageValue);
                 final int current = messageValue.header().get(headerDesc.seqNumField());
@@ -502,10 +503,8 @@ public class FixSessionImpl implements FixMessageListener {
                     expectedNext = clientSeqMsgId.reset(current);
                 }
                 expectedNext = clientSeqMsgId.reset(nextExpectedFuturSeqNum - 1);
-                connect(fixMessageValue);
                 return new ConnectedSessionState();
             }
-            connect(fixMessageValue);
             return new ConnectedGapSessionState(this.requestSendSeqNum,
                     firstReceivedSeqNum, this.nextExpectedFuturSeqNum, this.futureAppMessage, this.firstGapInGap);
         }
@@ -694,6 +693,7 @@ public class FixSessionImpl implements FixMessageListener {
             log.info(ident + " logout received");
             consume(seqNum);
             sendLogout("Requested from gap");
+            shutdown();
             return new LogoutSessionState();
         }
 
@@ -1023,10 +1023,9 @@ public class FixSessionImpl implements FixMessageListener {
         if (data != null && data.length > 0) {
             int gapfill = -1;
             for (FixMessage d : data) {
-                final MutableGlob header = FixSessionImpl.this.header;
                 if (FixAdminModel.TYPES.contains(d.getBody().getType())) {
                     if (gapfill == -1) {
-                        gapfill = header.get(headerDesc.seqNumField());
+                        gapfill = d.getHeader().get(headerDesc.seqNumField()); // (A) seqnum du 1er message admin sauté
                     }
                 } else {
                     if (gapfill != -1) {
@@ -1034,13 +1033,14 @@ public class FixSessionImpl implements FixMessageListener {
                                 .set(headerDesc.isDup(), true)
                                 .set(headerDesc.seqNumField(), gapfill);
                         writer.write(h,
-                                SequenceResetType.create(true, header.get(headerDesc.seqNumField())),
-                                null, false); // send GapFill
+                                SequenceResetType.create(true, d.getHeader().get(headerDesc.seqNumField())),
+                                null, false); // (B) NewSeqNo = seqNum original du 1er message applicatif rejoué
                         gapfill = -1;
                     }
-                    writer.write(header.duplicate()
+                    writer.write(FixSessionImpl.this.header.duplicate()
                                     .set(headerDesc.isDup(), true)
-                                    .set(headerDesc.origSendingTime(), header.get(headerDesc.sendingTime()))
+                                    .set(headerDesc.seqNumField(), d.getHeader().get(headerDesc.seqNumField()))
+                                    .set(headerDesc.origSendingTime(), d.getHeader().get(headerDesc.sendingTime()))
                             , d.getBody(), d.getTrailer(), false);
                 }
             }

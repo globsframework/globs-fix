@@ -140,7 +140,7 @@ class FixReaderImpl implements FixReader {
         checkId(fixId, 8);
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
-            throw new RuntimeException("invalid version. " + fixModel.getVersion() + " was expected but gor " +
+            throw new RuntimeException("invalid version. " + fixModel.getVersion() + " was expected but got " +
                                        new String(buffer, equalAt + 1, endAt));
         }
 
@@ -297,7 +297,7 @@ class FixReaderImpl implements FixReader {
         boolean equalFound = false;
         while (true) {
             while (pos < length) {
-                msgCheck += buffer[pos];
+                msgCheck += (buffer[pos] & 0xFF);
                 msgReadLen++;
                 if (!equalFound) {
                     if (buffer[pos] == '=') {

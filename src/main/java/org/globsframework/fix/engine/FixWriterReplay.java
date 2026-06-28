@@ -60,7 +60,7 @@ public class FixWriterReplay implements FixWriter, FixMessageRepository {
         }
         FixMessage[] result = new FixMessage[initialCapacity];
         synchronized (this) {
-            for (int i = 0; i < (full ? saved.length : current); i++) {
+            for (int i = 0; i < (full ? saved.length : current + 1); i++) {
                 FixMessage dd = saved[i];
                 final int seq = dd.getHeader().get(headerSeqNum);
                 if (seq >= fromSeqNum && seq <= toSeqNum) {

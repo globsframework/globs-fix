@@ -82,6 +82,9 @@ public class InMemoryCacheDataAdapt implements FixInfoProvider.DataAdapt, FixMes
 
     @Override
     public FixMessage[] get(int fromSeqNum, int toSeqNum) {
+        if (toSeqNum == 0) {
+            toSeqNum = msgSeqProvider.current();
+        }
         if (fromSeqNum >= firstId) {
             FixMessage[] data = new FixMessage[toSeqNum - fromSeqNum + 1];
             for (int i = fromSeqNum; i <= toSeqNum; i++) {
