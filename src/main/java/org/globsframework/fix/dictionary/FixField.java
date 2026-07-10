@@ -3,7 +3,9 @@ package org.globsframework.fix.dictionary;
 import java.util.Map;
 
 public non-sealed interface FixField extends FixElement {
-    int getMaxEnumLenght();
+    int getMaxEnumLength();
+
+    String getType();
 
     Map<String, String> enums();
 

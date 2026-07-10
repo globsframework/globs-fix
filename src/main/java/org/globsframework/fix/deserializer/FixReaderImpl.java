@@ -136,8 +136,8 @@ class FixReaderImpl implements FixReader {
         if (!readNext()) {
             throw new RuntimeException("Missing FIX header");
         }
-        int fixId = Utils.getIntAt(startAt, equalAt, buffer);
-        checkId(fixId, 8);
+//        int fixId = Utils.getIntAt(startAt, equalAt, buffer);
+        checkId(currentReadId, 8);
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
             throw new RuntimeException("invalid version. " + fixModel.getVersion() + " was expected but got " +
@@ -148,15 +148,15 @@ class FixReaderImpl implements FixReader {
         if (!readNext()) {
             throw new RuntimeException("Missing len");
         }
-        int msgLenId = Utils.getIntAt(startAt, equalAt, buffer);
-        checkId(msgLenId, 9);
+//        int msgLenId = currentReadId; //Utils.getIntAt(startAt, equalAt, buffer);
+        checkId(currentReadId, 9);
         messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer);
         msgReadLen = 0;
         if (!readNext()) {
             return null;
         }
-        int msgTypeId = Utils.getIntAt(startAt, equalAt, buffer);
-        checkId(msgTypeId, 35);
+//        int msgTypeId = Utils.getIntAt(startAt, equalAt, buffer);
+        checkId(currentReadId, 35);
         initMsgType();
 
         if (!readNext()) {
@@ -295,48 +295,60 @@ class FixReaderImpl implements FixReader {
         }
         startAt = pos;
         boolean equalFound = false;
+        int lMsgCheck = msgCheck;
+        int lMsgReadLen = msgReadLen;
+        byte[] lBuffer = buffer;
         while (true) {
-            while (pos < length) {
-                msgCheck += (buffer[pos] & 0xFF);
-                msgReadLen++;
+            int lPos = pos;
+            int lLength = length;
+            while (lPos < lLength) {
+                lMsgCheck += (lBuffer[lPos] & 0xFF);
+                lMsgReadLen++;
                 if (!equalFound) {
-                    if (buffer[pos] == '=') {
+                    if (lBuffer[lPos] == '=') {
                         equalFound = true;
-                        equalAt = pos;
+                        equalAt = lPos;
                     }
-                } else if (buffer[pos] == sep) {
-                    endAt = pos;
+                } else if (lBuffer[lPos] == sep) {
+                    endAt = lPos;
                     currentReadId = Utils.getIntAt(startAt, equalAt, buffer);
-                    pos++;
+                    pos = lPos + 1;
+                    msgCheck = lMsgCheck;
+                    msgReadLen = lMsgReadLen;
                     return true;
                 }
-                pos++;
+                lPos++;
             }
-            if (length == buffer.length) {
-                if (startAt == 0) {
-                    throw new RuntimeException("Bug : buffer is not expected to be more then " + buffer.length + " byte.");
-                }
-                System.arraycopy(buffer, startAt, buffer, 0, buffer.length - startAt);
-                equalAt = equalAt - startAt;
-                length = buffer.length - startAt;
-                pos = pos - startAt;
-                startAt = 0;
+            pos = lPos;
+            fillBuffer();
+        }
+    }
+
+    private void fillBuffer() {
+        if (length == buffer.length) {
+            if (startAt == 0) {
+                throw new RuntimeException("Bug : buffer is not expected to be more then " + buffer.length + " byte.");
             }
-            if (pos != startAt) {
-                final int read = reader.read(buffer, length, buffer.length - pos);
-                if (read == -1) {
-                    throw new RuntimeException("Unexpected end of stream");
-                }
-                length += read;
-            } else {
-                final int read = reader.read(buffer, 0, buffer.length);
-                if (read == -1) {
-                    throw new RuntimeException("client disconnected");
-                }
-                pos = 0;
-                length = read;
-                startAt = 0;
+            System.arraycopy(buffer, startAt, buffer, 0, buffer.length - startAt);
+            equalAt = equalAt - startAt;
+            length = buffer.length - startAt;
+            pos = pos - startAt;
+            startAt = 0;
+        }
+        if (pos != startAt) {
+            final int read = reader.read(buffer, length, buffer.length - pos);
+            if (read == -1) {
+                throw new RuntimeException("Unexpected end of stream");
             }
+            length += read;
+        } else {
+            final int read = reader.read(buffer, 0, buffer.length);
+            if (read == -1) {
+                throw new RuntimeException("client disconnected");
+            }
+            pos = 0;
+            length = read;
+            startAt = 0;
         }
     }
 

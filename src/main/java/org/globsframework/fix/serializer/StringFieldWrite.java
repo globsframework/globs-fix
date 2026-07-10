@@ -17,7 +17,7 @@ final class StringFieldWrite implements FieldWrite {
     }
 
     public static FieldWrite create(FixField fixField, int id, GlobGetStringAccessor getAccessor) {
-        if (fixField.getMaxEnumLenght() == 1) {
+        if (fixField.getMaxEnumLength() == 1) {
             return new SmallStringFieldWrite(id, getAccessor);
         }
         return new StringFieldWrite(id, getAccessor);
