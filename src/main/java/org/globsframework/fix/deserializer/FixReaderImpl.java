@@ -8,6 +8,7 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.FixModel;
+import org.globsframework.fix.dictionary.admin.RejectType;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.json.GSonUtils;
 import org.slf4j.Logger;
@@ -19,9 +20,6 @@ import java.util.Map;
 
 class FixReaderImpl implements FixReader {
     private static final Logger log = LoggerFactory.getLogger(FixReaderImpl.class);
-    // SessionRejectReason(373) values from the FIX 4.4 specification
-    public static final int SESSION_REJECT_INCORRECT_DATA_FORMAT = 6;
-    public static final int SESSION_REJECT_INVALID_MSGTYPE = 11;
     private final FixStruct header;
     private final FixStruct trailer;
     private final Map<String, FixMessageStructure> messagesFixStruct;
@@ -109,7 +107,7 @@ class FixReaderImpl implements FixReader {
                 return null;
             }
             return new FixMessageValue(header, null, null,
-                    new FixMessageValue.DecodeError(SESSION_REJECT_INVALID_MSGTYPE,
+                    new FixMessageValue.DecodeError(RejectType.SESSION_REJECT_INVALID_MSGTYPE,
                             "MsgType '" + msgType + "' not expected"));
         }
         Glob data;
@@ -122,13 +120,13 @@ class FixReaderImpl implements FixReader {
             log.warn("Fail to decode message of type " + msgType + " : " + e.getMessage(), e);
             skipRemaining();
             data = null;
-            decodeError = new FixMessageValue.DecodeError(SESSION_REJECT_INCORRECT_DATA_FORMAT,
+            decodeError = new FixMessageValue.DecodeError(RejectType.SESSION_REJECT_INCORRECT_DATA_FORMAT,
                     "Fail to decode message : " + e.getMessage());
         }
         if (decodeError == null) {
             if (data == null) {
                 log.warn("No data read for " + GSonUtils.encode(header));
-                decodeError = new FixMessageValue.DecodeError(SESSION_REJECT_INVALID_MSGTYPE,
+                decodeError = new FixMessageValue.DecodeError(RejectType.SESSION_REJECT_INVALID_MSGTYPE,
                         "MsgType '" + msgType + "' not managed");
             }
             trailer = readData(this.trailer);

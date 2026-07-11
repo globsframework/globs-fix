@@ -247,6 +247,22 @@ public class FixSessionImpl implements FixMessageListener {
                 && !message.isTrue(SequenceResetType.gapFillFlag)) {
                 return this;
             }
+            if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
+                final String origSendingTime = fixMessageValue.header().get(headerDesc.origSendingTime());
+                final String sendingTime = fixMessageValue.header().get(headerDesc.sendingTime());
+                // FIX spec 2d : PossDupFlag=Y with OrigSendingTime after SendingTime
+                // => reject with SendingTime accuracy problem
+                if (origSendingTime != null && sendingTime != null && origSendingTime.compareTo(sendingTime) > 0) {
+                    final String msg = "OrigSendingTime " + origSendingTime + " is after SendingTime " + sendingTime;
+                    log.error(ident + " " + msg);
+                    sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
+                            RejectType.SESSION_REJECT_SENDING_TIME_ACCURACY, msg);
+                    if (seqNum == expectedNext) {
+                        consumeSeqNum();
+                    }
+                    return new IgnoreAndReturnPrevious(this);
+                }
+            }
             if (seqNum < expectedNext) {
                 if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
                     return managePastDuplicate(seqNum, fixMessageValue);
@@ -427,12 +443,16 @@ public class FixSessionImpl implements FixMessageListener {
         writer.write(FixSessionImpl.this.header.duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
     }
 
+    private void sendReject(int seqNum, String msgType, int sessionRejectReason, String msg) {
+        writer.write(FixSessionImpl.this.header.duplicate(),
+                RejectType.create(seqNum, msgType, sessionRejectReason, msg), null, false);
+    }
+
     private void rejectUndecodable(int seqNum, FixMessageValue fixMessageValue) {
         final FixMessageValue.DecodeError error = fixMessageValue.decodeError();
         log.warn(ident + " reject undecodable message " + seqNum + " : " + error.text());
-        writer.write(FixSessionImpl.this.header.duplicate(),
-                RejectType.create(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
-                        error.sessionRejectReason(), error.text()), null, false);
+        sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
+                error.sessionRejectReason(), error.text());
     }
 
     class InitiatorSessionState extends AbstractSessionState {
@@ -795,6 +815,12 @@ public class FixSessionImpl implements FixMessageListener {
                 if (firstGapInGap != -1) {
                     log.info(ident + " gap in gap detected at " + firstGapInGap + " requesting resend.");
                     return new ConnectedGapSessionState(firstGapInGap);
+                }
+                // without gap in gap, everything below nextExpectedFuturSeqNum was processed or
+                // flushed : fold messages consumed during the gap (e.g. the acceptor logon that
+                // triggered it) into expectedNext to avoid a spurious ResendRequest on the next message
+                if (nextExpectedFuturSeqNum > expectedNext) {
+                    expectedNext = clientSeqMsgId.reset(nextExpectedFuturSeqNum - 1);
                 }
                 return new ConnectedSessionState();
             }

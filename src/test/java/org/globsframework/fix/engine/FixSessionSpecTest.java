@@ -219,6 +219,74 @@ class FixSessionSpecTest {
         assertTrue(replayB.header().get(HeaderType.possDupFlag));
     }
 
+    // spec 2d : PossDupFlag=Y with OrigSendingTime after SendingTime => Reject(10), seqNum consumed
+    @Test
+    void possDupWithOrigSendingTimeAfterSendingTimeIsRejected() throws Exception {
+        connectInitiator();
+        fixSession.newMessage(new FixMessageValue(getHeader(2)
+                .set(HeaderType.possDupFlag, true)
+                .set(HeaderType.sendingTime, "20260711-10:00:00.000")
+                .set(HeaderType.origSendingTime, "20260711-11:00:00.000"),
+                QuoteRequestType.create("2"), null));
+
+        final FixMessageValue reject = fixReader.read();
+        assertEquals(RejectType.TYPE, reject.message().getType());
+        assertEquals(RejectType.SESSION_REJECT_SENDING_TIME_ACCURACY,
+                reject.message().get(RejectType.sessionRejectReason));
+        assertEquals(2, reject.message().get(RejectType.refSeqNum));
+        assertTrue(userSession.checkEmpty());
+
+        // the message was at the expected seqNum : it is consumed, next is 3 without gap detection
+        fixSession.newMessage(new FixMessageValue(getHeader(3), QuoteRequestType.create("3"), null));
+        assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertFalse(shutdownCalled.get());
+    }
+
+    // spec 2d : same check on a stale duplicate (below expected) : rejected without consuming
+    @Test
+    void staleDupWithBadOrigSendingTimeIsRejectedWithoutConsuming() throws Exception {
+        connectInitiator();
+        fixSession.newMessage(new FixMessageValue(getHeader(2), QuoteRequestType.create("2"), null));
+        assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+
+        fixSession.newMessage(new FixMessageValue(getHeader(2)
+                .set(HeaderType.possDupFlag, true)
+                .set(HeaderType.sendingTime, "20260711-10:00:00.000")
+                .set(HeaderType.origSendingTime, "20260711-11:00:00.000"),
+                QuoteRequestType.create("2bis"), null));
+
+        final FixMessageValue reject = fixReader.read();
+        assertEquals(RejectType.TYPE, reject.message().getType());
+        assertEquals(RejectType.SESSION_REJECT_SENDING_TIME_ACCURACY,
+                reject.message().get(RejectType.sessionRejectReason));
+        assertTrue(userSession.checkEmpty());
+
+        // expectedNext untouched : the session continues at 3
+        fixSession.newMessage(new FixMessageValue(getHeader(3), QuoteRequestType.create("3"), null));
+        assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+    }
+
+    // after an acceptor logon gap, the logon's own seqNum is folded in : no spurious ResendRequest
+    @Test
+    void acceptorLogonGapClosesWithoutSpuriousResendRequest() throws Exception {
+        createSession(false, new TestUserSession());
+        fixSession.newMessage(new FixMessageValue(getHeader(5), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        assertEquals(ResendRequestType.TYPE, fixReader.read().message().getType());
+
+        // messages 1-4 were admin on the peer side : it answers with a GapFill up to the logon seq
+        fixSession.newMessage(new FixMessageValue(getHeader(1).set(HeaderType.possDupFlag, true),
+                SequenceResetType.create(true, 5), null));
+
+        // seq 6 is the next message : processed directly, no new ResendRequest
+        fixSession.newMessage(new FixMessageValue(getHeader(6), QuoteRequestType.create("6"), null));
+        assertEquals("6", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+
+        userSession.publish(QuoteRequestType.create("out"));
+        assertEquals(QuoteRequestType.TYPE, fixReader.read().message().getType());
+    }
+
     // spec 3 (out) : send a Heartbeat when no message has been sent for HeartBtInt
     @Test
     void heartbeatIsSentAfterSendInactivity() throws Exception {

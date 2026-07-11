@@ -10,6 +10,11 @@ import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
 
 public class RejectType {
+    // SessionRejectReason(373) values from the FIX 4.4 specification
+    public static final int SESSION_REJECT_INCORRECT_DATA_FORMAT = 6;
+    public static final int SESSION_REJECT_SENDING_TIME_ACCURACY = 10;
+    public static final int SESSION_REJECT_INVALID_MSGTYPE = 11;
+
     public static final GlobType TYPE;
 
     public static final IntegerField refSeqNum;
