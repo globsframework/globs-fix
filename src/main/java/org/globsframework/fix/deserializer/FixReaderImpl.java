@@ -111,7 +111,7 @@ class FixReaderImpl implements FixReader {
             length = length - pos;
             pos = 0;
         }
-        while (pos + 6 > length) {
+        while (pos + 7 > length) {
             int read = reader.read(buffer, length, buffer.length - length);
             if (read <= 0) {
                 throw new RuntimeException("Unexpected end of stream");

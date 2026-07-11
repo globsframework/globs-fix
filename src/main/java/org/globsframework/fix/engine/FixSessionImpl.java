@@ -225,46 +225,39 @@ public class FixSessionImpl implements FixMessageListener {
             }
             if (seqNum < expectedNext) {
                 if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
-                    log.info(ident + " duplicate messages ignored.");
-                } else {
-                    final String msg = ident + " invalid seq num " + seqNum + " expecting " + expectedNext;
-                    log.error(msg);
-                    // check
-                    sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()), msg);
-                    SessionState previous = this;
-                    // ignore the message and return to the previous state
-                    return new IgnoreAndReturnPrevious(previous);
+                    return managePastDuplicate(seqNum, fixMessageValue);
                 }
+                // FIX spec : MsgSeqNum lower than expected without PossDupFlag is a serious error
+                // => send a Logout with the cause and disconnect.
+                final String msg = "MsgSeqNum too low, expecting " + expectedNext + " but received " + seqNum;
+                log.error(ident + " " + msg);
+                sendLogout(msg);
+                shutdown();
+                // ignore the message being dispatched and end in logout state
+                return new IgnoreAndReturnPrevious(new LogoutSessionState());
             }
             if (expectedNext != seqNum) {
-                return manageGap(seqNum, fixMessageValue);
+                log.warn(ident + " Gap detected '" + expectedNext + "' was expected but got '" + seqNum + "'");
+                return gapState(seqNum);
             }
             return this;
         }
 
-        SessionState manageGap(int seqNum, FixMessageValue fixMessageValue) {
-            log.warn(ident + " Gap detected '" + expectedNext + "' was expected but got '" + seqNum + "'");
-            if (seqNum < expectedNext) {
-                if (fixMessageValue.message().getType() == SequenceResetType.TYPE) {
-                    final int newSeqNum = fixMessageValue.message().get(SequenceResetType.newSeqNo);
-                    if (newSeqNum > expectedNext) {
-                        log.warn(ident + " past sequence reset with future seq : reset seqNum to " + newSeqNum);
-                        expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
-                    } else {
-                        log.warn(ident + " duplicate ignored.");
-                    }
+        // the message is ignored : it must not reach the application nor consume a seqNum
+        SessionState managePastDuplicate(int seqNum, FixMessageValue fixMessageValue) {
+            final Glob message = fixMessageValue.message();
+            if (message != null && message.getType() == SequenceResetType.TYPE) {
+                final int newSeqNum = message.get(SequenceResetType.newSeqNo);
+                if (newSeqNum > expectedNext) {
+                    log.warn(ident + " past sequence reset with future seq : reset seqNum to " + newSeqNum);
+                    expectedNext = clientSeqMsgId.reset(newSeqNum - 1);
                 } else {
-                    final boolean isDup = fixMessageValue.header().isTrue(headerDesc.isDup());
-                    if (isDup) {
-                        log.warn(ident + " ignore old message.");
-                    } else {
-                        log.error(ident + " received message.");
-                    }
+                    log.warn(ident + " duplicate ignored.");
                 }
-                return this;
             } else {
-                return gapState(seqNum);
+                log.info(ident + " duplicate messages ignored.");
             }
+            return new IgnoreAndReturnPrevious(this);
         }
 
         @Override

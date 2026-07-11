@@ -27,8 +27,10 @@ import java.util.Arrays;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FixSessionInitiatorTest {
@@ -41,6 +43,7 @@ class FixSessionInitiatorTest {
     private FixSessionImpl fixSession;
     private TestUserSession userSession;
     private CompletableByteReader completableByteReader;
+    private final AtomicBoolean shutdownCalled = new AtomicBoolean();
 
     @BeforeEach
     void setUp() throws IOException {
@@ -67,8 +70,7 @@ class FixSessionInitiatorTest {
         }, fixWriterBuilder),
                 userSession, fixMessageRepository.clientSeqMsgId(),
                 fixMessageRepository.getSelfMsgSeqProvider(), fixMessageRepository.getCachedData(),
-                HeaderType.getHeaderDesc(), () -> {
-        },
+                HeaderType.getHeaderDesc(), () -> shutdownCalled.set(true),
                 true, new FixSessionImpl.Option(-1));
     }
 
@@ -248,6 +250,44 @@ class FixSessionInitiatorTest {
         assertEquals("4", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
         assertEquals("6", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
         assertTrue(userSession.checkEmpty());
+    }
+
+    @Test
+    void msgSeqNumTooLowWithoutPossDupTriggersLogoutAndDisconnect() throws Exception {
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2"), null));
+        assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+
+        // seq 2 already consumed : replaying it without PossDupFlag is a serious error per the FIX spec
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2bis"), null));
+
+        final FixMessageValue logout = fixReader.read();
+        assertEquals(LogoutType.TYPE, logout.message().getType());
+        assertEquals("MsgSeqNum too low, expecting 3 but received 2", logout.message().get(LogoutType.text));
+        assertTrue(shutdownCalled.get());
+        // the offending message must not reach the application
+        assertTrue(userSession.checkEmpty());
+    }
+
+    @Test
+    void msgSeqNumTooLowWithPossDupIsIgnoredAndSessionContinues() throws Exception {
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), QuoteRequestType.create("2"), null));
+        assertEquals("2", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+
+        // duplicate of seq 2 flagged PossDupFlag=Y : must be ignored, not redelivered
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2).set(HeaderType.possDupFlag, true),
+                QuoteRequestType.create("2bis"), null));
+        assertTrue(userSession.checkEmpty());
+        assertFalse(shutdownCalled.get());
+
+        // the session goes on as if nothing happened
+        fixSession.newMessage(new FixMessageValue(getNextHeader(3), QuoteRequestType.create("3"), null));
+        assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
     }
 
     private MutableGlob getNextHeader(int seqNum) {
