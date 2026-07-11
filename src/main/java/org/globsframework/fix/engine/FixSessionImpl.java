@@ -248,39 +248,51 @@ public class FixSessionImpl implements FixMessageListener {
                 return this;
             }
             if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
-                final String origSendingTime = fixMessageValue.header().get(headerDesc.origSendingTime());
-                final String sendingTime = fixMessageValue.header().get(headerDesc.sendingTime());
-                // FIX spec 2d : PossDupFlag=Y with OrigSendingTime after SendingTime
-                // => reject with SendingTime accuracy problem
-                if (origSendingTime != null && sendingTime != null && origSendingTime.compareTo(sendingTime) > 0) {
-                    final String msg = "OrigSendingTime " + origSendingTime + " is after SendingTime " + sendingTime;
-                    log.error(ident + " " + msg);
-                    sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
-                            RejectType.SESSION_REJECT_SENDING_TIME_ACCURACY, msg);
-                    if (seqNum == expectedNext) {
-                        consumeSeqNum();
-                    }
-                    return new IgnoreAndReturnPrevious(this);
+                final IgnoreAndReturnPrevious gapState = manageDup(seqNum, fixMessageValue);
+                if (gapState != null) {
+                    return gapState;
                 }
             }
             if (seqNum < expectedNext) {
-                if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
-                    return managePastDuplicate(seqNum, fixMessageValue);
-                }
-                // FIX spec : MsgSeqNum lower than expected without PossDupFlag is a serious error
-                // => send a Logout with the cause and disconnect.
-                final String msg = "MsgSeqNum too low, expecting " + expectedNext + " but received " + seqNum;
-                log.error(ident + " " + msg);
-                sendLogout(msg);
-                shutdown();
-                // ignore the message being dispatched and end in logout state
-                return new IgnoreAndReturnPrevious(new LogoutSessionState());
+                return managedUnexpectedSeqNum(seqNum, fixMessageValue);
             }
             if (expectedNext != seqNum) {
                 log.warn(ident + " Gap detected '" + expectedNext + "' was expected but got '" + seqNum + "'");
                 return gapState(seqNum);
             }
             return this;
+        }
+
+        private SessionState managedUnexpectedSeqNum(int seqNum, FixMessageValue fixMessageValue) {
+            if (fixMessageValue.header().isTrue(headerDesc.isDup())) {
+                return managePastDuplicate(seqNum, fixMessageValue);
+            }
+            // FIX spec : MsgSeqNum lower than expected without PossDupFlag is a serious error
+            // => send a Logout with the cause and disconnect.
+            final String msg = "MsgSeqNum too low, expecting " + expectedNext + " but received " + seqNum;
+            log.error(ident + " " + msg);
+            sendLogout(msg);
+            shutdown();
+            // ignore the message being dispatched and end in logout state
+            return new IgnoreAndReturnPrevious(new LogoutSessionState());
+        }
+
+        private IgnoreAndReturnPrevious manageDup(int seqNum, FixMessageValue fixMessageValue) {
+            final String origSendingTime = fixMessageValue.header().get(headerDesc.origSendingTime());
+            final String sendingTime = fixMessageValue.header().get(headerDesc.sendingTime());
+            // FIX spec 2d : PossDupFlag=Y with OrigSendingTime after SendingTime
+            // => reject with SendingTime accuracy problem
+            if (origSendingTime != null && sendingTime != null && origSendingTime.compareTo(sendingTime) > 0) {
+                final String msg = "OrigSendingTime " + origSendingTime + " is after SendingTime " + sendingTime;
+                log.error(ident + " " + msg);
+                sendReject(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
+                        RejectType.SESSION_REJECT_SENDING_TIME_ACCURACY, msg);
+                if (seqNum == expectedNext) {
+                    consumeSeqNum();
+                }
+                return new IgnoreAndReturnPrevious(this);
+            }
+            return null;
         }
 
         // the message is ignored : it must not reach the application nor consume a seqNum
