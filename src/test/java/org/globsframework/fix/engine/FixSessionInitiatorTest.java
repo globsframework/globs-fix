@@ -327,6 +327,30 @@ class FixSessionInitiatorTest {
         assertSame(result, fixSession.logout());
     }
 
+    @Test
+    void undecodableMessageIsRejectedAndSeqNumConsumed() throws Exception {
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+
+        // a message the reader could not decode : rejected with its SessionRejectReason
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2).set(HeaderType.msgType, "ZZ"), null, null,
+                new FixMessageValue.DecodeError(11, "MsgType 'ZZ' not expected")));
+
+        final FixMessageValue reject = fixReader.read();
+        assertEquals(RejectType.TYPE, reject.message().getType());
+        assertEquals(2, reject.message().get(RejectType.refSeqNum));
+        assertEquals("ZZ", reject.message().get(RejectType.refMsgType));
+        assertEquals(11, reject.message().get(RejectType.sessionRejectReason));
+        assertEquals("MsgType 'ZZ' not expected", reject.message().get(RejectType.text));
+        assertTrue(userSession.checkEmpty());
+
+        // the seqNum was consumed : the session goes on without gap detection
+        fixSession.newMessage(new FixMessageValue(getNextHeader(3), QuoteRequestType.create("3"), null));
+        assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+        assertFalse(shutdownCalled.get());
+    }
+
     private MutableGlob getNextHeader(int seqNum) {
         return HeaderType.create("AF", "BNP")
                 .set(HeaderType.msgSeqNum, seqNum);

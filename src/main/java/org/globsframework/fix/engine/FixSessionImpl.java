@@ -176,6 +176,8 @@ public class FixSessionImpl implements FixMessageListener {
                 } else {
                     sessionState = sessionState.appMessage(seqNum, fixMessageValue);
                 }
+            } else if (fixMessageValue.decodeError() != null) {
+                sessionState = sessionState.undecodableMessage(seqNum, fixMessageValue);
             }
         }
     }
@@ -199,6 +201,9 @@ public class FixSessionImpl implements FixMessageListener {
         SessionState resendRequest(int seqNum, FixMessageValue fixMessageValue);
 
         SessionState testRequest(int seqNum, FixMessageValue fixMessageValue);
+
+        // well formed at the transport level but undecodable : reject and consume the seqNum
+        SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue);
     }
 
     private void connect(FixMessageValue fixMessageValue) {
@@ -325,6 +330,13 @@ public class FixSessionImpl implements FixMessageListener {
             return this;
         }
 
+        @Override
+        public SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue) {
+            consumeSeqNum();
+            rejectUndecodable(seqNum, fixMessageValue);
+            return this;
+        }
+
         abstract public SessionState gapState(int seqNum);
 
         private class IgnoreAndReturnPrevious implements SessionState {
@@ -389,6 +401,12 @@ public class FixSessionImpl implements FixMessageListener {
             }
 
             @Override
+            public SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue) {
+                log.info(ident + " new state back to " + previous);
+                return previous;
+            }
+
+            @Override
             public String toString() {
                 return "IgnoreAndReturnPrevious";
             }
@@ -407,6 +425,14 @@ public class FixSessionImpl implements FixMessageListener {
 
     private void sendReject(int seqNum, String msgType, String msg) {
         writer.write(FixSessionImpl.this.header.duplicate(), RejectType.create(seqNum, msgType, msg), null, false);
+    }
+
+    private void rejectUndecodable(int seqNum, FixMessageValue fixMessageValue) {
+        final FixMessageValue.DecodeError error = fixMessageValue.decodeError();
+        log.warn(ident + " reject undecodable message " + seqNum + " : " + error.text());
+        writer.write(FixSessionImpl.this.header.duplicate(),
+                RejectType.create(seqNum, fixMessageValue.header().get(headerDesc.msgType()),
+                        error.sessionRejectReason(), error.text()), null, false);
     }
 
     class InitiatorSessionState extends AbstractSessionState {
@@ -586,6 +612,13 @@ public class FixSessionImpl implements FixMessageListener {
             } else {
                 log.warn(ident + " (unconnected) can not consume " + seqNum + " expectedPast is " + nextExpectedPastSeqNum + " expectedFutur is " + nextExpectedFuturSeqNum);
             }
+        }
+
+        @Override
+        public SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue) {
+            consume(seqNum);
+            rejectUndecodable(seqNum, fixMessageValue);
+            return this;
         }
 
         @Override
@@ -789,6 +822,17 @@ public class FixSessionImpl implements FixMessageListener {
         }
 
         @Override
+        public SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue) {
+            rejectUndecodable(seqNum, fixMessageValue);
+            if (seqNum == expectedNext) {
+                consume(seqNum);
+                return checkGapComplete(seqNum);
+            }
+            consume(seqNum);
+            return this;
+        }
+
+        @Override
         public SessionState appMessage(int seqNum, FixMessageValue fixMessageValue) {
             if (seqNum == nextExpectedFuturSeqNum) {
                 futureAppMessage.add(fixMessageValue);
@@ -951,6 +995,12 @@ public class FixSessionImpl implements FixMessageListener {
 
         @Override
         public SessionState testRequest(int seqNum, FixMessageValue fixMessageValue) {
+            return cancel();
+        }
+
+        @Override
+        public SessionState undecodableMessage(int seqNum, FixMessageValue fixMessageValue) {
+            // only a logon is expected here
             return cancel();
         }
 

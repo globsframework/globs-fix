@@ -40,4 +40,9 @@ public class RejectType {
                 .set(RejectType.text, raison)
                 ;
     }
+
+    public static MutableGlob create(int refSeqNum, String refMsgType, int sessionRejectReason, String raison) {
+        return create(refSeqNum, refMsgType, raison)
+                .set(RejectType.sessionRejectReason, sessionRejectReason);
+    }
 }

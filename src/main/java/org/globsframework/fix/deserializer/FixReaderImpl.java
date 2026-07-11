@@ -19,6 +19,9 @@ import java.util.Map;
 
 class FixReaderImpl implements FixReader {
     private static final Logger log = LoggerFactory.getLogger(FixReaderImpl.class);
+    // SessionRejectReason(373) values from the FIX 4.4 specification
+    public static final int SESSION_REJECT_INCORRECT_DATA_FORMAT = 6;
+    public static final int SESSION_REJECT_INVALID_MSGTYPE = 11;
     private final FixStruct header;
     private final FixStruct trailer;
     private final Map<String, FixMessageStructure> messagesFixStruct;
@@ -83,28 +86,71 @@ class FixReaderImpl implements FixReader {
 
     @Override
     public FixMessageValue read() {
-        Glob header = readHeader();
-        if (currentFixStruct == null) {
-            throw new RuntimeException("msgType " + msgType + " not expected.");
+        while (true) {
+            final FixMessageValue value = readOneMessage();
+            if (value != null) {
+                return value;
+            }
+            // garbled message (invalid checksum) : ignored per the FIX spec without consuming
+            // a seqNum, the gap detection will recover it. Read the next message.
         }
-        Glob data = readData(currentFixStruct.fixStruct());
-        if (data == null) {
-            log.warn("No data read for " + GSonUtils.encode(header));
-        }
-
-        MutableGlob trailer = readData(this.trailer);
-
-        int check = msgCheck % 256;
-
-        readChecksum(check);
-
-        if (checkSumField != null) {
-            trailer.set(checkSumField, check);
-        }
-        return new FixMessageValue(header, data, trailer);
     }
 
-    private void readChecksum(int check) {
+    /*
+    returns null when the message is garbled and must be ignored.
+     */
+    private FixMessageValue readOneMessage() {
+        Glob header = readHeader();
+        if (currentFixStruct == null) {
+            // unknown MsgType : consume the message and let the session layer send a Reject
+            log.warn("msgType " + msgType + " not expected, message skipped.");
+            skipRemaining();
+            if (!readChecksum(msgCheck % 256)) {
+                return null;
+            }
+            return new FixMessageValue(header, null, null,
+                    new FixMessageValue.DecodeError(SESSION_REJECT_INVALID_MSGTYPE,
+                            "MsgType '" + msgType + "' not expected"));
+        }
+        Glob data;
+        FixMessageValue.DecodeError decodeError = null;
+        MutableGlob trailer = null;
+        try {
+            data = readData(currentFixStruct.fixStruct());
+        } catch (Exception e) {
+            // the framing is still valid : consume the rest of the message and reject it
+            log.warn("Fail to decode message of type " + msgType + " : " + e.getMessage(), e);
+            skipRemaining();
+            data = null;
+            decodeError = new FixMessageValue.DecodeError(SESSION_REJECT_INCORRECT_DATA_FORMAT,
+                    "Fail to decode message : " + e.getMessage());
+        }
+        if (decodeError == null) {
+            if (data == null) {
+                log.warn("No data read for " + GSonUtils.encode(header));
+                decodeError = new FixMessageValue.DecodeError(SESSION_REJECT_INVALID_MSGTYPE,
+                        "MsgType '" + msgType + "' not managed");
+            }
+            trailer = readData(this.trailer);
+        }
+
+        int check = msgCheck % 256;
+        if (!readChecksum(check)) {
+            return null;
+        }
+
+        if (trailer != null && checkSumField != null) {
+            trailer.set(checkSumField, check);
+        }
+        return new FixMessageValue(header, data, trailer, decodeError);
+    }
+
+    private void skipRemaining() {
+        while (readNext()) {
+        }
+    }
+
+    private boolean readChecksum(int check) {
         // we read the 7 octets for checkum (2 octets) = value (3 octets) + 0x1
         if (pos + 7 > buffer.length) {
             System.arraycopy(buffer, pos, buffer, 0, buffer.length - pos);
@@ -123,10 +169,12 @@ class FixReaderImpl implements FixReader {
             throw new RuntimeException("Invalid checksum id " + checkSumId + " != 10");
         }
         int checkSum = Utils.getIntAt(pos + 3, pos + 6, buffer);
-        if (checkSum != check) {
-            throw new RuntimeException("Invalid checksum " + checkSum + " != " + check);
-        }
         pos += 7;
+        if (checkSum != check) {
+            log.warn("Invalid checksum " + checkSum + " != " + check + " : message ignored.");
+            return false;
+        }
+        return true;
     }
 
     public Glob readHeader() {

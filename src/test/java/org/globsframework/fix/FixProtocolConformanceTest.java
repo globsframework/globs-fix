@@ -25,6 +25,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+
 /*
 Check the wire format against the FIX 4.4 specification :
  - BeginString(8), BodyLength(9) and MsgType(35) are the first three fields, in that order.
@@ -38,6 +39,7 @@ Also check that the reader enforces BeginString/CheckSum and supports a fragment
  */
 public class FixProtocolConformanceTest {
     private static final byte SOH = 0x1;
+    private static final String SOH_STR = "\u0001";
 
     private FixModel loadModel() throws IOException {
         return ReadFixDictionary.parse("FIX.4.4", () ->
@@ -124,25 +126,69 @@ public class FixProtocolConformanceTest {
     }
 
     @Test
-    void readerRejectsCorruptedCheckSum() throws IOException {
+    void readerDiscardsGarbledMessageAndContinues() throws IOException {
+        final FixModel fixModel = loadModel();
+        final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE);
+        List<byte[]> datas = new ArrayList<>();
+        final FixWriter writer = createWriter(fixModel, globModel, datas);
+        writer.write(HeaderType.create("SENDER", "TARGET"), HeartbeatType.create("req1"), null, false);
+        writer.write(HeaderType.create("SENDER", "TARGET"), HeartbeatType.create("req2"), null, false);
+
+        final byte[] merged = merge(datas);
+        // corrupt one byte of the first message body without touching the transmitted checksum
+        final int at = indexOf(merged, "112=req1".getBytes(StandardCharsets.ISO_8859_1));
+        assertTrue(at > 0);
+        merged[at + 4] = 'X';
+
+        final FixReaderBuilder readerBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel,
+                HeaderType.TYPE, TrailerType.TYPE);
+        final FixReader reader = readerBuilder.createReader(new ByteArrayInputStream(merged)::read);
+        // the garbled message is ignored per the FIX spec : the next valid one is returned
+        final FixMessageValue read = reader.read();
+        assertEquals("req2", read.message().get(HeartbeatType.testReqID));
+        assertEquals(2, read.header().get(HeaderType.msgSeqNum));
+    }
+
+    @Test
+    void readerReturnsDecodeErrorOnUnknownMsgType() throws IOException {
         final FixModel fixModel = loadModel();
         final GlobModel globModel = new DefaultGlobModel(HeartbeatType.TYPE);
         List<byte[]> datas = new ArrayList<>();
         final FixWriter writer = createWriter(fixModel, globModel, datas);
         writer.write(HeaderType.create("SENDER", "TARGET"), HeartbeatType.create("req1"), null, false);
 
-        final byte[] msg = datas.get(0);
-        // corrupt one byte of the body without touching the transmitted checksum
-        final int at = indexOf(msg, "112=req1".getBytes(StandardCharsets.ISO_8859_1));
-        assertTrue(at > 0);
-        msg[at + 4] = 'X';
+        final byte[] unknown = rawFixMessage("ZZ",
+                "49=SENDER\u000156=TARGET\u000134=1\u000152=20260711-10:00:00.000\u0001777=hello\u0001");
+        List<byte[]> stream = new ArrayList<>();
+        stream.add(unknown);
+        stream.add(datas.get(0));
+        final byte[] merged = merge(stream);
 
         final FixReaderBuilder readerBuilder = DeserializerFixReaderBuilder.create(fixModel, globModel,
                 HeaderType.TYPE, TrailerType.TYPE);
-        final FixReader reader = readerBuilder.createReader(new ByteArrayInputStream(msg)::read);
-        final RuntimeException exception = assertThrows(RuntimeException.class, reader::read);
-        assertTrue(exception.getMessage().contains("checksum"),
-                "expected a checksum error but got : " + exception.getMessage());
+        final FixReader reader = readerBuilder.createReader(new ByteArrayInputStream(merged)::read);
+        // the unknown message is consumed and reported so the session layer can send a Reject(11)
+        final FixMessageValue unknownRead = reader.read();
+        assertNull(unknownRead.message());
+        assertNotNull(unknownRead.decodeError());
+        assertEquals(11, unknownRead.decodeError().sessionRejectReason());
+        assertEquals("ZZ", unknownRead.header().get(HeaderType.msgType));
+        assertEquals(1, unknownRead.header().get(HeaderType.msgSeqNum));
+        // the stream is still in sync : the next message is read normally
+        final FixMessageValue next = reader.read();
+        assertEquals("req1", next.message().get(HeartbeatType.testReqID));
+        assertNull(next.decodeError());
+    }
+
+    private static byte[] rawFixMessage(String msgType, String fieldsAfterMsgType) {
+        final String body = "35=" + msgType + "\u0001" + fieldsAfterMsgType;
+        final String withoutCheckSum = "8=FIX.4.4\u00019=" + body.length() + "\u0001" + body;
+        long sum = 0;
+        for (byte b : withoutCheckSum.getBytes(StandardCharsets.ISO_8859_1)) {
+            sum += b & 0xFF;
+        }
+        return (withoutCheckSum + "10=" + String.format("%03d", sum % 256) + "\u0001")
+                .getBytes(StandardCharsets.ISO_8859_1);
     }
 
     @Test
