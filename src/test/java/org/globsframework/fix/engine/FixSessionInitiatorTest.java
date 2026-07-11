@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FixSessionInitiatorTest {
@@ -288,6 +290,41 @@ class FixSessionInitiatorTest {
         // the session goes on as if nothing happened
         fixSession.newMessage(new FixMessageValue(getNextHeader(3), QuoteRequestType.create("3"), null));
         assertEquals("3", userSession.getMessage().message().get(QuoteRequestType.quoteReqID));
+    }
+
+    @Test
+    void onClosedCallbackRunsOnPeerInitiatedLogout() throws Exception {
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        final AtomicBoolean onClosed = new AtomicBoolean();
+        fixSession.registerOnClosed(() -> onClosed.set(true));
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+
+        fixSession.newMessage(new FixMessageValue(getNextHeader(2), LogoutType.create("Bye"), null));
+        assertEquals(LogoutType.TYPE, fixReader.read().message().getType());
+        assertTrue(shutdownCalled.get());
+        assertTrue(onClosed.get());
+
+        // registered after the close : runs immediately
+        final AtomicBoolean lateOnClosed = new AtomicBoolean();
+        fixSession.registerOnClosed(() -> lateOnClosed.set(true));
+        assertTrue(lateOnClosed.get());
+    }
+
+    @Test
+    void logoutIsIdempotentAndSafeAfterShutdown() throws Exception {
+        assertEquals(LogonType.TYPE, fixReader.read().message().getType());
+        fixSession.newMessage(new FixMessageValue(getNextHeader(1), LogonType.create(10000), null));
+        userSession.connected.get(1, TimeUnit.SECONDS);
+
+        final CompletableFuture<Boolean> result = fixSession.logout();
+        assertEquals(LogoutType.TYPE, fixReader.read().message().getType());
+        // Option(-1) : the forced shutdown runs immediately, no peer response
+        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertTrue(shutdownCalled.get());
+
+        // second call : no new Logout sent, no NPE on the null userSession, same completed future
+        assertSame(result, fixSession.logout());
     }
 
     private MutableGlob getNextHeader(int seqNum) {

@@ -18,9 +18,19 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/*
+Threading model :
+ - the reader thread calls newMessage (a single thread per session).
+ - the scheduler threads run the heartbeat tasks and the forced logout task.
+ - application threads call appWriter.write, logout and registerOnClosed.
+All the session state (state machine, sequence numbers, heartbeat scheduling, lifecycle)
+is guarded by sessionLock. The hot-path timestamps written outside the lock stay volatile.
+onClose runnables may be run while sessionLock is held : they must not block.
+ */
 public class FixSessionImpl implements FixMessageListener {
     private static final Logger log = LoggerFactory.getLogger(FixSessionImpl.class);
     public static final int DELAY_BETWEEN_CONNECT_AND_LOGON = 10;
+    private final Object sessionLock = new Object();
     private final String ident;
     private final String identSend;
     private final String identReceive;
@@ -32,29 +42,34 @@ public class FixSessionImpl implements FixMessageListener {
     private final HeaderDesc headerDesc;
     private final Shutdown shutdown;
     private final MutableGlob header;
-    private long heartbeatInMSIn;
-    private volatile long lastMessageReceivedTimeStampInMS = -1;
-    private long heartbeatInMSOut;
+    private final ClientSeqMsgId clientSeqMsgId;
+    private final Option option;
+    private final List<Runnable> onClose = new ArrayList<>(); // guarded by sessionLock
+    private final CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
+    // written by the writer wrapper from any thread (app publish path is not under sessionLock)
     private volatile long lastWriteOut = -1;
-    private volatile String expectedHeartbeat;
-    private ClientSeqMsgId clientSeqMsgId;
+    // read lock-free in AppFixWriter
+    private volatile boolean closed;
+    // the fields below are guarded by sessionLock (constructor writes happen before publication)
+    private long heartbeatInMSIn;
+    private long heartbeatInMSOut;
+    private long lastMessageReceivedTimeStampInMS = -1;
+    private String expectedHeartbeat;
     private ScheduledFuture<?> scheduleOut;
     private ScheduledFuture<?> scheduleIn;
     private UserSession userSession;
     private AppMessageReceiver appMessageReceiver;
     private int expectedNext;
-    private volatile boolean closed;
-    private final Option option;
-    private List<Runnable> onClose = new ArrayList<>();
-    private CompletableFuture<Boolean> closedCompletable = new CompletableFuture<>();
-    private volatile SessionState sessionState;
+    private SessionState sessionState;
 
-    synchronized public void registerOnClosed(Runnable runnable) {
-        if (closed) {
-            runnable.run();
-            return;
+    public void registerOnClosed(Runnable runnable) {
+        synchronized (sessionLock) {
+            if (!closed) {
+                onClose.add(runnable);
+                return;
+            }
         }
-        onClose.add(runnable);
+        runnable.run();
     }
 
     public record Option(int delayBeforeForceLogout) {
@@ -102,15 +117,17 @@ public class FixSessionImpl implements FixMessageListener {
         identReceive = senderCompId + "<-" + targetCompId;
         log.info(ident + " new session at " + selfMsgSeqProvider.current() + " and expected seqNum " + expectedNext + " from " + targetCompId);
         closedCompletable.whenComplete((aBoolean, throwable) -> {
-            synchronized (FixSessionImpl.this) {
-                for (Runnable runnable : onClose) {
-                    try {
-                        runnable.run();
-                    } catch (Exception e) {
-                        log.warn("Error thrown on close " + e.getMessage(), e);
-                    }
-                }
+            List<Runnable> toRun;
+            synchronized (sessionLock) {
+                toRun = new ArrayList<>(onClose);
                 onClose.clear();
+            }
+            for (Runnable runnable : toRun) {
+                try {
+                    runnable.run();
+                } catch (Exception e) {
+                    log.warn("Error thrown on close " + e.getMessage(), e);
+                }
             }
         });
         if (isInitiator) {
@@ -131,32 +148,34 @@ public class FixSessionImpl implements FixMessageListener {
                       ", " + jsonOut(fixMessageValue.trailer(), false) + "]");
         }
 
-        lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
-        final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
-        sessionState = sessionState.checkSeqNum(seqNum, fixMessageValue);
-        final Glob message = fixMessageValue.message();
-        if (message != null) {
-            final GlobType type = message.getType();
-            if (FixAdminModel.TYPES.contains(type)) {
-                if (type == LogonType.TYPE) {
-                    sessionState = sessionState.logon(seqNum, fixMessageValue);
-                } else if (type == LogoutType.TYPE) {
-                    sessionState = sessionState.logout(seqNum, fixMessageValue);
-                } else if (type == HeartbeatType.TYPE) {
-                    sessionState = sessionState.heartBeat(seqNum, fixMessageValue);
-                } else if (type == ResendRequestType.TYPE) {
-                    sessionState = sessionState.resendRequest(seqNum, fixMessageValue);
-                } else if (type == SequenceResetType.TYPE) {
-                    sessionState = sessionState.sequenceReset(seqNum, fixMessageValue);
-                } else if (type == RejectType.TYPE) {
-                    sessionState = sessionState.rejectedMessage(seqNum, fixMessageValue);
-                } else if (type == TestRequestType.TYPE) {
-                    sessionState = sessionState.testRequest(seqNum, fixMessageValue);
+        synchronized (sessionLock) {
+            lastMessageReceivedTimeStampInMS = System.currentTimeMillis();
+            final int seqNum = fixMessageValue.header().get(headerDesc.seqNumField());
+            sessionState = sessionState.checkSeqNum(seqNum, fixMessageValue);
+            final Glob message = fixMessageValue.message();
+            if (message != null) {
+                final GlobType type = message.getType();
+                if (FixAdminModel.TYPES.contains(type)) {
+                    if (type == LogonType.TYPE) {
+                        sessionState = sessionState.logon(seqNum, fixMessageValue);
+                    } else if (type == LogoutType.TYPE) {
+                        sessionState = sessionState.logout(seqNum, fixMessageValue);
+                    } else if (type == HeartbeatType.TYPE) {
+                        sessionState = sessionState.heartBeat(seqNum, fixMessageValue);
+                    } else if (type == ResendRequestType.TYPE) {
+                        sessionState = sessionState.resendRequest(seqNum, fixMessageValue);
+                    } else if (type == SequenceResetType.TYPE) {
+                        sessionState = sessionState.sequenceReset(seqNum, fixMessageValue);
+                    } else if (type == RejectType.TYPE) {
+                        sessionState = sessionState.rejectedMessage(seqNum, fixMessageValue);
+                    } else if (type == TestRequestType.TYPE) {
+                        sessionState = sessionState.testRequest(seqNum, fixMessageValue);
+                    } else {
+                        log.error("Bug : type " + type.getName() + " not managed.");
+                    }
                 } else {
-                    log.error("Bug : type " + type.getName() + " not managed.");
+                    sessionState = sessionState.appMessage(seqNum, fixMessageValue);
                 }
-            } else {
-                sessionState = sessionState.appMessage(seqNum, fixMessageValue);
             }
         }
     }
@@ -943,25 +962,27 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     public CompletableFuture<Boolean> logout() {
-        final CompletableFuture<Void> logout = userSession.logout();
-        try {
-            if (logout != null) {
-                logout.get(1, TimeUnit.SECONDS);
+        synchronized (sessionLock) {
+            if (closed || userSession == null) {
+                // logout already sent or session already shut down
+                return closedCompletable;
             }
-        } catch (Exception _) {
-        }
-        closed = true;
-        sessionState = new LogoutSessionExpectingLogout();
-        writer.write(FixSessionImpl.this.header.duplicate(),
-                LogoutType.create("Logout requested."), null, false);
+            final CompletableFuture<Void> logout = userSession.logout();
+            try {
+                if (logout != null) {
+                    logout.get(1, TimeUnit.SECONDS);
+                }
+            } catch (Exception _) {
+            }
+            closed = true;
+            sessionState = new LogoutSessionExpectingLogout();
+            writer.write(FixSessionImpl.this.header.duplicate(),
+                    LogoutType.create("Logout requested."), null, false);
 
-//        while (true) {
-        // add async call to close in case no response are sent.
-        scheduledExecutorService.schedule(() -> {
-            closedCompletable.complete(false);
-            shutdown();
-        }, option.delayBeforeForceLogout(), TimeUnit.SECONDS);
-        return closedCompletable;
+            // add async call to close in case no response are sent : shutdown completes closedCompletable
+            scheduledExecutorService.schedule(this::shutdown, option.delayBeforeForceLogout(), TimeUnit.SECONDS);
+            return closedCompletable;
+        }
     }
 
     private int sentLogon() {
@@ -996,17 +1017,22 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private void shutdown() {
-        if (userSession == null) {
-            return;
+        synchronized (sessionLock) {
+            if (userSession == null) {
+                return;
+            }
+            userSession = null;
+            closed = true;
+            if (scheduleOut != null) {
+                scheduleOut.cancel(false);
+            }
+            if (scheduleIn != null) {
+                scheduleIn.cancel(false);
+            }
         }
         shutdown.close();
-        if (scheduleOut != null) {
-            scheduleOut.cancel(false);
-        }
-        if (scheduleIn != null) {
-            scheduleIn.cancel(false);
-        }
-        userSession = null;
+        // no-op if already completed : make sure onClose runnables always run whatever the termination path
+        closedCompletable.complete(false);
     }
 
     private void treatReSend(FixMessageValue fixMessageValue) {
@@ -1064,51 +1090,57 @@ public class FixSessionImpl implements FixMessageListener {
     }
 
     private void manageInHeartBeat() {
-        if (userSession == null) {
-            return;
-        }
-        long when = (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
-        if (when <= 0) {
-            log.info(ident + ": send heartbeat request");
-            expectedHeartbeat = UUID.randomUUID().toString();
-            writer.write(FixSessionImpl.this.header.duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
-            scheduleIn = scheduledExecutorService.schedule(this::checkReceived, heartbeatInMSIn, TimeUnit.MILLISECONDS);
-        } else {
-            scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, when, TimeUnit.MILLISECONDS);
+        synchronized (sessionLock) {
+            if (userSession == null) {
+                return;
+            }
+            long when = (lastMessageReceivedTimeStampInMS + heartbeatInMSIn) - System.currentTimeMillis() + (heartbeatInMSIn * 15) / 100;
+            if (when <= 0) {
+                log.info(ident + ": send heartbeat request");
+                expectedHeartbeat = UUID.randomUUID().toString();
+                writer.write(FixSessionImpl.this.header.duplicate(), TestRequestType.create(expectedHeartbeat), null, false);
+                scheduleIn = scheduledExecutorService.schedule(this::checkReceived, heartbeatInMSIn, TimeUnit.MILLISECONDS);
+            } else {
+                scheduleIn = scheduledExecutorService.schedule(this::manageInHeartBeat, when, TimeUnit.MILLISECONDS);
+            }
         }
     }
 
     private void checkReceived() {
-        if (userSession == null) {
-            return;
-        }
-        if (expectedHeartbeat == null) {
-            log.info(ident + ": Requested heartbeat was received and cleared");
-            manageInHeartBeat();
-        } else {
-            if (System.currentTimeMillis() - lastMessageReceivedTimeStampInMS > heartbeatInMSIn) {
-                log.error(ident + ": Heartbeat not received " + expectedHeartbeat + ". Shutdown connection.");
-                shutdown.close();
-            } else {
-                log.info(ident + ": A message was received, continue.");
+        synchronized (sessionLock) {
+            if (userSession == null) {
+                return;
+            }
+            if (expectedHeartbeat == null) {
+                log.info(ident + ": Requested heartbeat was received and cleared");
                 manageInHeartBeat();
+            } else {
+                if (System.currentTimeMillis() - lastMessageReceivedTimeStampInMS > heartbeatInMSIn) {
+                    log.error(ident + ": Heartbeat not received " + expectedHeartbeat + ". Shutdown connection.");
+                    shutdown();
+                } else {
+                    log.info(ident + ": A message was received, continue.");
+                    manageInHeartBeat();
+                }
             }
         }
     }
 
     private void manageOutHeartBeat() {
-        if (userSession == null) {
-            return;
+        synchronized (sessionLock) {
+            if (userSession == null) {
+                return;
+            }
+            long timeElapsedSinceWrite = System.currentTimeMillis() - lastWriteOut;
+            long when = heartbeatInMSOut - timeElapsedSinceWrite - 100;
+            if (when <= 0) {
+                log.info(ident + ": send heartbeat");
+                writer.write(FixSessionImpl.this.header.duplicate(), HeartbeatType.create(), null, false);
+                when = heartbeatInMSOut;
+            }
+            when = Math.max(when, 100);
+            scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, when, TimeUnit.MILLISECONDS);
         }
-        long timeElapsedSinceWrite = System.currentTimeMillis() - lastWriteOut;
-        long when = heartbeatInMSOut - timeElapsedSinceWrite - 100;
-        if (when <= 0) {
-            log.info(ident + ": send heartbeat");
-            writer.write(FixSessionImpl.this.header.duplicate(), HeartbeatType.create(), null, false);
-            when = heartbeatInMSOut;
-        }
-        when = Math.max(when, 100);
-        scheduleOut = scheduledExecutorService.schedule(this::manageOutHeartBeat, when, TimeUnit.MILLISECONDS);
     }
 
     private class AppFixWriter implements FixWriter {
