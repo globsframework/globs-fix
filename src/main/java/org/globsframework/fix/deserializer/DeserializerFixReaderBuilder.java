@@ -79,6 +79,8 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                         switch (field) {
                             case StringField stringField ->
                                     fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField));
+                            case StringArrayField stringField ->
+                                    fieldReaders.put(fixField.getId(), new MultipleValueStringFieldDirectFieldReader(stringField));
                             case IntegerField integerField ->
                                     fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
                             case BooleanField booleanField ->

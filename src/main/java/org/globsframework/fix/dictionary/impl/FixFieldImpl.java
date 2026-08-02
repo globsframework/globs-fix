@@ -30,7 +30,7 @@ public class FixFieldImpl implements FixField {
         maxEnumSize = Math.max(maxEnumSize, value.length());
     }
 
-    public int getMaxEnumLength(){
+    public int getMaxEnumLength() {
         return maxEnumSize;
     }
 
@@ -39,7 +39,7 @@ public class FixFieldImpl implements FixField {
         return type;
     }
 
-    public Map<String, String> enums(){
+    public Map<String, String> enums() {
         return enums;
     }
 

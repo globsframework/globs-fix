@@ -47,7 +47,7 @@ public class FixWriterImpl implements FixWriter {
         int at = OFFSET;
         final MutableGlob header = fixMessage.getHeader();
         final MutableGlob trailer = fixMessage.getTrailer();
-        final MutableGlob message = fixMessage.getBody();
+        final Glob message = fixMessage.getBody();
         boolean isSeqNext = header.isNotSet(msgSeqNum);
         if (isSeqNext) {
             header.set(msgSeqNum, msgSeqProvider.next());

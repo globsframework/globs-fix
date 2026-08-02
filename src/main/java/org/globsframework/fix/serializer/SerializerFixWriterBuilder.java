@@ -137,6 +137,11 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                                     fixField.getId(),
                                     messageType.getGetAccessor(dateTimeField)
                             ));
+                            case StringArrayField stringArrayField ->
+                                    fieldWrites.put(field, new MultipleValueStringFieldWrite(
+                                            fixField.getId(),
+                                            messageType.getGetAccessor(stringArrayField)
+                                    ));
                             default ->
                                     throw new RuntimeException("Type " + field.getDataType() + " not managed on " + field.getFullName());
                         }

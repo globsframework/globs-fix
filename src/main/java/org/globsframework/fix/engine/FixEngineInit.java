@@ -22,7 +22,8 @@ class FixEngineInit {
     private final SerializerProvider serializerProvider;
     private final UserLogonSessionFactory serverUserLogonSessionFactory;
 
-    public FixEngineInit(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService, FixInfoProvider fixInfoProvider, SerializerProvider serializerProvider, UserLogonSessionFactory serverUserLogonSessionFactory) {
+    public FixEngineInit(ExecutorService executorService, ScheduledExecutorService scheduledExecutorService,
+                         FixInfoProvider fixInfoProvider, SerializerProvider serializerProvider, UserLogonSessionFactory serverUserLogonSessionFactory) {
         this.executorService = executorService;
         this.scheduledExecutorService = scheduledExecutorService;
         this.fixInfoProvider = fixInfoProvider;

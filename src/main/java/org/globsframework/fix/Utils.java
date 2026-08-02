@@ -97,7 +97,11 @@ public class Utils {
     public static int getIntAt(int from, int to, byte[] buffer) {
         int value = 0;
         for (int i = from; i < to; i++) {
-            value = value * 10 + buffer[i] - '0';
+            final byte b = buffer[i];
+            if (b > '9' || b < '0') {
+                throw new RuntimeException("Character " + b + " not expected in integer type");
+            }
+            value = value * 10 + b - '0';
         }
         return value;
     }
