@@ -45,6 +45,9 @@ class FixReaderImpl implements FixReader {
     private int currentReadId;
     private String msgType;
     private FixMessageStructure currentFixStruct;
+    private int pendingDataLength = -1; // >= 0 when the next field is a DATA field of that many bytes
+    private int pendingDataTag = -1;
+    private byte[] pendingPayload;
 
     public FixReaderImpl(ByteReader reader, Map<String, FixMessageStructure> messageFixStruct,
                          FixStruct fixHeader, FixStruct fixTrailer, FixModel fixModel, byte sep) {
@@ -130,7 +133,13 @@ class FixReaderImpl implements FixReader {
         } catch (Exception e) {
             // the framing is still valid : consume the rest of the message and reject it
             log.warn("Fail to decode message of type " + msgType + " : " + e.getMessage(), e);
-            skipRemaining();
+            try {
+                skipRemaining();
+            } catch (Exception skipError) {
+                // the position inside the message is not trustworthy any more : garbled, ignored
+                log.warn("Cannot consume the message after the decode error : " + skipError.getMessage());
+                return null;
+            }
             data = null;
             decodeError = new FixMessageValue.DecodeError(RejectType.SESSION_REJECT_INCORRECT_DATA_FORMAT,
                     "Fail to decode message : " + e.getMessage());
@@ -232,6 +241,9 @@ class FixReaderImpl implements FixReader {
         msgCheck = 0;
         currentFixStruct = null;
         msgType = null;
+        pendingDataLength = -1;
+        pendingDataTag = -1;
+        pendingPayload = null;
         // msgReadLen still holds the len of the previous message : without this reset, readNext would
         // refuse to read a message that follows one whose BodyLength happens to reach the sentinel.
         msgReadLen = 0;
@@ -316,6 +328,17 @@ class FixReaderImpl implements FixReader {
         }
     }
 
+    /*
+    A length of 0 announces no DATA field at all : the tag that follows is read normally.
+     */
+    private void armDataField(DataLengthFieldReader lengthReader) {
+        final int len = Utils.getIntAt(equalAt + 1, endAt, buffer);
+        if (len > 0) {
+            pendingDataLength = len;
+            pendingDataTag = lengthReader.dataTag();
+        }
+    }
+
     private void skip(FixStruct fixStruct) {
         while (currentReadId != -1) {
             final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
@@ -328,6 +351,18 @@ class FixReaderImpl implements FixReader {
                     readData(component);
                 }
                 case DirectFieldReader directFieldReader -> {
+                    if (!readNext()) {
+                        return;
+                    }
+                }
+                case DataLengthFieldReader lengthReader -> {
+                    armDataField(lengthReader);
+                    if (!readNext()) {
+                        return;
+                    }
+                }
+                case DataFieldReader dataFieldReader -> {
+                    pendingPayload = null; // already consumed by readDataField
                     if (!readNext()) {
                         return;
                     }
@@ -377,6 +412,20 @@ class FixReaderImpl implements FixReader {
                         return data;
                     }
                 }
+                case DataLengthFieldReader lengthReader -> {
+                    lengthReader.read(equalAt + 1, endAt, buffer, data);
+                    armDataField(lengthReader);
+                    if (!readNext()) {
+                        return data;
+                    }
+                }
+                case DataFieldReader dataFieldReader -> {
+                    dataFieldReader.read(pendingPayload, data);
+                    pendingPayload = null;
+                    if (!readNext()) {
+                        return data;
+                    }
+                }
                 case GroupReader groupReader -> {
                     final int groupCount = Utils.getIntAt(equalAt + 1, endAt, buffer);
                     checkGroupCount(groupCount);
@@ -399,6 +448,9 @@ class FixReaderImpl implements FixReader {
     }
 
     public boolean readNext() {
+        if (pendingDataLength >= 0) {
+            return readDataField(); // kept out of line : the scan below is the hot path
+        }
         // >= and not == : on a wrong BodyLength msgReadLen jumps over messageLen and we would
         // otherwise keep reading the following messages forever. readOneMessage reports the overshoot.
         if (msgReadLen >= messageLen) {
@@ -434,6 +486,98 @@ class FixReaderImpl implements FixReader {
             pos = lPos;
             fillBuffer();
         }
+    }
+
+    /*
+    A DATA field holds any byte, SOH and '=' included : it cannot be scanned, exactly the number of
+    bytes announced by the LENGTH field that precedes it is read. The payload is read straight into
+    its own array instead of going through the read buffer, so a field larger than the buffer works.
+     */
+    private boolean readDataField() {
+        final int len = pendingDataLength;
+        final int dataTag = pendingDataTag;
+        pendingDataLength = -1;
+        pendingDataTag = -1;
+        final int left = messageLen - msgReadLen;
+        if (len > left) {
+            throw new RuntimeException("Invalid length " + len + " for data field " + dataTag +
+                                       " : only " + left + " bytes left in the message");
+        }
+        readDataTag();
+        final int readTag = currentReadId;
+        // the payload is consumed even when the tag is not the expected one : the announced length is
+        // still the only way to stay aligned, so the message can be rejected without losing the stream
+        pendingPayload = readPayload(len);
+        readDataSeparator(readTag);
+        if (readTag != dataTag) {
+            throw new RuntimeException("Data field " + dataTag + " expected after its length but got " + readTag);
+        }
+        return true;
+    }
+
+    private void readDataTag() {
+        startAt = pos;
+        int at = pos;
+        while (true) {
+            if (at == length) {
+                pos = at;
+                fillBuffer();
+                at = pos; // fillBuffer may have shifted everything down
+                continue;
+            }
+            if (buffer[at] == '=') {
+                break;
+            }
+            if (at - startAt > 10) {
+                throw new RuntimeException("No tag found before the data field, message is garbled.");
+            }
+            at++;
+        }
+        equalAt = at;
+        int check = msgCheck;
+        for (int i = startAt; i <= equalAt; i++) {
+            check += buffer[i] & 0xFF;
+        }
+        msgCheck = check;
+        msgReadLen += equalAt - startAt + 1;
+        currentReadId = Utils.getIntAt(startAt, equalAt, buffer);
+        pos = equalAt + 1;
+    }
+
+    private byte[] readPayload(int len) {
+        final byte[] payload = new byte[len];
+        int copied = Math.min(length - pos, len);
+        System.arraycopy(buffer, pos, payload, 0, copied);
+        pos += copied;
+        while (copied < len) {
+            // straight into the payload : the field may be larger than the read buffer
+            final int read = reader.read(payload, copied, len - copied);
+            if (read <= 0) {
+                throw new RuntimeException("Unexpected end of stream");
+            }
+            copied += read;
+        }
+        int check = msgCheck;
+        for (byte b : payload) {
+            check += b & 0xFF;
+        }
+        msgCheck = check;
+        msgReadLen += len;
+        return payload;
+    }
+
+    private void readDataSeparator(int dataTag) {
+        if (pos == length) {
+            startAt = pos; // nothing to keep, the payload is already out of the buffer
+            fillBuffer();
+        }
+        if (buffer[pos] != sep) {
+            throw new RuntimeException("Data field " + dataTag + " does not end on a separator, its length is wrong.");
+        }
+        msgCheck += sep & 0xFF;
+        msgReadLen++;
+        endAt = pos;
+        pos++;
     }
 
     private void fillBuffer() {

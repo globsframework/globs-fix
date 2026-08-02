@@ -90,7 +90,9 @@ class FixReaderBuilderTest {
 
             assertNotNull(read.trailer());
             assertEquals("sign", read.trailer().get(TrailerType.Signature));
-            assertEquals(130, read.trailer().get(TrailerType.CheckSum));
+            // Signature is a DATA field, it is now written preceded by its SignatureLength as the
+            // specification requires, which changes the bytes the checksum is computed over
+            assertEquals(101, read.trailer().get(TrailerType.CheckSum));
         }
         {
             final FixMessageValue read = reader.read();
@@ -102,7 +104,7 @@ class FixReaderBuilderTest {
 
             assertNotNull(read.trailer());
             assertEquals("sign", read.trailer().get(TrailerType.Signature));
-            assertEquals(140, read.trailer().get(TrailerType.CheckSum));
+            assertEquals(111, read.trailer().get(TrailerType.CheckSum));
         }
     }
 

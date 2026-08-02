@@ -10,6 +10,7 @@ import org.globsframework.fix.dictionary.*;
 import org.globsframework.fix.dictionary.admin.FixAdminModel;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
+import org.globsframework.fix.dictionary.reverter.FixModelToGlobType;
 
 import java.util.*;
 
@@ -65,14 +66,20 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                                                                     FixFieldAccessor fixFieldAccessor, IntHashMap<FieldReader> fieldReaders) {
         final Map<String, Field> fixFieldAccessorFixField = fixFieldAccessor.getFixField(type);
         final List<FixElement> elements = message.getElements();
+        // a DATA field is always preceded, in the same container, by the LENGTH field giving its size
+        FixField previousFixField = null;
         for (FixElement element : elements) {
             switch (element) {
                 case FixComponent component -> {
                     getFieldReaderIntHashMap(type, component, fixFieldAccessor, fieldReaders);
+                    previousFixField = null;
                 }
                 case FixField fixField -> {
                     final Field field = fixFieldAccessorFixField.get(fixField.getName());
-                    if (field == null) {
+                    if (FixModelToGlobType.DATA.equals(fixField.getType())) {
+                        declareDataField(fieldReaders, fixFieldAccessorFixField, previousFixField, fixField, field);
+                    }
+                    else if (field == null) {
                         fieldReaders.put(fixField.getId(), new NoFieldDirectFieldReader());
                     }
                     else {
@@ -91,6 +98,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                                     throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
                         }
                     }
+                    previousFixField = fixField;
                 }
                 case FixGroup fixGroup -> {
                     final FixField countField = fixGroup.getCountField();
@@ -118,10 +126,33 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                         FieldReader groupFieldReader = new NoFieldGroupReader(fixStruct);
                         fieldReaders.put(countField.getId(), groupFieldReader);
                     }
+                    previousFixField = null;
                 }
             }
         }
         return fieldReaders;
+    }
+
+    /*
+    A DATA field and the LENGTH field that precedes it are read as a pair : the length drives the
+    parsing, so it gets a reader of its own even when the GlobType binds neither of them.
+     */
+    private static void declareDataField(IntHashMap<FieldReader> fieldReaders, Map<String, Field> boundFields,
+                                         FixField lengthFixField, FixField dataFixField, Field dataField) {
+        if (lengthFixField == null || !FixModelToGlobType.LENGTH.equals(lengthFixField.getType())) {
+            throw new RuntimeException("Data field " + dataFixField.getName() + " is not preceded by a length field");
+        }
+        final Field boundLength = boundFields.get(lengthFixField.getName());
+        fieldReaders.put(lengthFixField.getId(), boundLength instanceof IntegerField integerField
+                ? new IntFieldDataLengthReader(integerField, dataFixField.getId())
+                : new NoFieldDataLengthReader(dataFixField.getId()));
+        fieldReaders.put(dataFixField.getId(), switch (dataField) {
+            case null -> new NoFieldDataReader();
+            case BytesField bytesField -> new BytesFieldDataReader(bytesField);
+            case StringField stringField -> new StringFieldDataReader(stringField);
+            default -> throw new RuntimeException("Unsupported field type: " + dataField.getDataType() +
+                                                  " for the data field " + dataField.getFullName());
+        });
     }
 
     @Override

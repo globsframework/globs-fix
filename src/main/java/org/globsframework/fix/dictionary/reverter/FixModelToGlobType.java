@@ -74,6 +74,8 @@ public class FixModelToGlobType {
                                 FixFieldType.create(fixField.getName()));
                         case MULTIPLEVALUESTRING -> typeBuilder.declareStringArrayField(fixField.getName(),
                                 FixFieldType.create(fixField.getName()));
+                        case DATA -> typeBuilder.declareBytesField(fixField.getName(),
+                                FixFieldType.create(fixField.getName()));
                         default -> typeBuilder.declareStringField(fixField.getName(),
                                 FixFieldType.create(fixField.getName()));
                     }

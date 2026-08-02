@@ -5,6 +5,8 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.globaccessor.get.GlobGetBytesAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetStringAccessor;
 import org.globsframework.fix.FormatDateTime;
 import org.globsframework.fix.Utils;
 import org.globsframework.fix.dictionary.*;
@@ -12,6 +14,7 @@ import org.globsframework.fix.dictionary.admin.FixAdminModel;
 import org.globsframework.fix.dictionary.model.FixFieldType;
 import org.globsframework.fix.dictionary.model.FixGroupType;
 import org.globsframework.fix.dictionary.model.FixMessageType;
+import org.globsframework.fix.dictionary.reverter.FixModelToGlobType;
 import org.globsframework.fix.engine.HeaderDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +24,7 @@ import java.util.*;
 
 public class SerializerFixWriterBuilder implements FixWriterBuilder {
     private static final Logger log = LoggerFactory.getLogger(SerializerFixWriterBuilder.class);
+    private static final FieldWrite WRITE_NOTHING = (buffer, at, data) -> at;
     private static final Set<Integer> headerFieldToIgnore = Set.of(8, 9, 35);
     private static final Set<Integer> trailerFieldToIgnore = Set.of(10);
     private final Map<GlobType, MessageFieldWrite> writerPerMessageType;
@@ -116,11 +120,15 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
 
 
         }
+        // a DATA field is always preceded, in the same container, by the LENGTH field giving its size
+        FixField previousFixField = null;
         for (FixElement element : elements) {
             switch (element) {
                 case FixField fixField -> {
                     final Field field = fields.get(fixField.getName());
-                    if (field != null) {
+                    if (FixModelToGlobType.DATA.equals(fixField.getType())) {
+                        declareDataField(fieldWrites, fields, previousFixField, fixField, field, messageType);
+                    } else if (field != null) {
                         switch (field) {
                             case StringField stringField -> fieldWrites.put(field,
                                     StringFieldWrite.create(fixField, fixField.getId(), messageType.getGetAccessor(stringField)
@@ -148,9 +156,11 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     } else {
                         log.debug("No field for " + fixField.getName() + " (" + fixField.getId() + ")");
                     }
+                    previousFixField = fixField;
                 }
                 case FixComponent fixComponent -> {
                     extracted(fieldWrites, fixComponent.getElements(), messageType);
+                    previousFixField = null;
                 }
                 case FixGroup fixGroup -> {
                     final String firstFieldName = fixGroup.getCountField().getName();
@@ -167,11 +177,43 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     } else {
                         log.debug("No glob array field for " + firstFieldName);
                     }
-
+                    previousFixField = null;
                 }
             }
         }
         return fieldWrites;
+    }
+
+    /*
+    The LENGTH field that precedes a DATA field is written by the data writer, from the payload : it
+    must not write anything of its own, and nothing at all is written when the data is not bound.
+     */
+    private static void declareDataField(Map<Field, FieldWrite> fieldWrites, Map<String, Field> fields,
+                                         FixField lengthFixField, FixField dataFixField, Field dataField,
+                                         GlobType messageType) {
+        if (lengthFixField == null || !FixModelToGlobType.LENGTH.equals(lengthFixField.getType())) {
+            throw new RuntimeException("Data field " + dataFixField.getName() + " is not preceded by a length field");
+        }
+        final Field boundLength = fields.get(lengthFixField.getName());
+        if (boundLength != null) {
+            fieldWrites.put(boundLength, WRITE_NOTHING);
+        }
+        if (dataField == null) {
+            log.debug("No field for " + dataFixField.getName() + " (" + dataFixField.getId() + ")");
+            return;
+        }
+        fieldWrites.put(dataField, switch (dataField) {
+            case BytesField bytesField -> {
+                final GlobGetBytesAccessor accessor = messageType.getGetAccessor(bytesField);
+                yield DataFieldWrite.create(lengthFixField.getId(), dataFixField.getId(), accessor);
+            }
+            case StringField stringField -> {
+                final GlobGetStringAccessor accessor = messageType.getGetAccessor(stringField);
+                yield DataFieldWrite.create(lengthFixField.getId(), dataFixField.getId(), accessor);
+            }
+            default -> throw new RuntimeException("Type " + dataField.getDataType() + " not managed on the data field "
+                                                  + dataField.getFullName());
+        });
     }
 
     @Override
