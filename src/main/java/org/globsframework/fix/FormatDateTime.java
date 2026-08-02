@@ -147,7 +147,7 @@ public class FormatDateTime {
     public String now(long whenNearNow, boolean withMilli) {
         byte[] data = new byte[21];
         now(data, 0, whenNearNow);
-        return new String(data);
+        return new String(data, StandardCharsets.ISO_8859_1);
     }
 
     public String now() {

@@ -57,7 +57,7 @@ public class FixWriterImpl implements FixWriter {
         }
         if (header.isNotSet(sendingTime)) {
             utcFormater.now(utcTime, 0);
-            header.set(sendingTime, new String(utcTime));
+            header.set(sendingTime, new String(utcTime, StandardCharsets.ISO_8859_1));
         }
         int startAt = 0;
         int s = 0;

@@ -1,13 +1,10 @@
 package org.globsframework.fix.deserializer;
 
 import org.globsframework.core.metamodel.fields.StringArrayField;
-import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.nio.charset.StandardCharsets;
 
 class MultipleValueStringFieldDirectFieldReader implements DirectFieldReader {
     private final StringArrayField field;
@@ -18,7 +15,7 @@ class MultipleValueStringFieldDirectFieldReader implements DirectFieldReader {
 
     @Override
     public void read(int from, int to, byte[] buffer, MutableGlob data) {
-        final String s = new String(buffer, from, to - from);
+        final String s = new String(buffer, from, to - from, StandardCharsets.ISO_8859_1);
         data.set(field, s.split(" ")); //TODO
     }
 

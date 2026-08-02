@@ -20,6 +20,8 @@ import java.util.Map;
 
 class FixReaderImpl implements FixReader {
     private static final Logger log = LoggerFactory.getLogger(FixReaderImpl.class);
+    // a message this engine cannot even write (FixWriterImpl owns a 1 MB buffer) is refused on read.
+    private static final int MAX_BODY_LENGTH = 1024 * 1024;
     private final FixStruct header;
     private final FixStruct trailer;
     private final Map<String, FixMessageStructure> messagesFixStruct;
@@ -99,11 +101,21 @@ class FixReaderImpl implements FixReader {
      */
     private FixMessageValue readOneMessage() {
         Glob header = readHeader();
+        if (isGarbledFraming()) {
+            return null;
+        }
+        if (header == null) {
+            // BodyLength ended before the header was complete : garbled message, ignored like an
+            // invalid checksum. The body is over so the trailer is still aligned, consume it.
+            log.warn("Incomplete header (BodyLength=" + messageLen + ") : message ignored.");
+            readChecksum(msgCheck % 256);
+            return null;
+        }
         if (currentFixStruct == null) {
             // unknown MsgType : consume the message and let the session layer send a Reject
             log.warn("msgType " + msgType + " not expected, message skipped.");
             skipRemaining();
-            if (!readChecksum(msgCheck % 256)) {
+            if (isGarbledFraming() || !readChecksum(msgCheck % 256)) {
                 return null;
             }
             return new FixMessageValue(header, null, null,
@@ -130,6 +142,18 @@ class FixReaderImpl implements FixReader {
                         "MsgType '" + msgType + "' not managed");
             }
             trailer = readData(this.trailer);
+            if (currentReadId != -1) {
+                // a tag no structure of that message knows about : the body is not consumed, and the
+                // checksum would be read in the middle of it. Skip it and let the session layer Reject.
+                log.warn("Tag " + currentReadId + " not expected in message of type " + msgType + ".");
+                decodeError = new FixMessageValue.DecodeError(RejectType.SESSION_REJECT_INVALID_TAG_NUMBER,
+                        "Tag '" + currentReadId + "' not expected in message '" + msgType + "'");
+                skipRemaining();
+            }
+        }
+
+        if (isGarbledFraming()) {
+            return null;
         }
 
         int check = msgCheck % 256;
@@ -143,6 +167,32 @@ class FixReaderImpl implements FixReader {
         return new FixMessageValue(header, data, trailer, decodeError);
     }
 
+    /*
+    the body must end exactly on a field boundary : when it does not, BodyLength is wrong and the
+    framing cannot be trusted any more. The message is garbled and is ignored, no seqNum is consumed.
+     */
+    private boolean isGarbledFraming() {
+        if (msgReadLen <= messageLen) {
+            return false;
+        }
+        log.warn("Invalid BodyLength " + messageLen + " for msgType " + msgType + " : " + msgReadLen +
+                 " bytes read, message ignored.");
+        return true;
+    }
+
+    /*
+    the count comes from the wire and sizes an array before a single element is read : a message cannot
+    declare more elements than it has bytes left. Without this a bogus 'NoPartyIDs=999999999' allocates
+    a huge array, and the resulting OutOfMemoryError is an Error, not caught as a decode error.
+     */
+    private void checkGroupCount(int groupCount) {
+        final int left = messageLen - msgReadLen;
+        if (groupCount < 0 || groupCount > left) {
+            throw new RuntimeException("Invalid count " + groupCount + " for group " + currentReadId +
+                                       " : only " + left + " bytes left in the message");
+        }
+    }
+
     private void skipRemaining() {
         while (readNext()) {
         }
@@ -151,7 +201,7 @@ class FixReaderImpl implements FixReader {
     private boolean readChecksum(int check) {
         // we read the 7 octets for checkum (2 octets) = value (3 octets) + 0x1
         if (pos + 7 > buffer.length) {
-            System.arraycopy(buffer, pos, buffer, 0, buffer.length - pos);
+            System.arraycopy(buffer, pos, buffer, 0, length - pos);
             length = length - pos;
             pos = 0;
         }
@@ -167,6 +217,9 @@ class FixReaderImpl implements FixReader {
             throw new RuntimeException("Invalid checksum id " + checkSumId + " != 10");
         }
         int checkSum = Utils.getIntAt(pos + 3, pos + 6, buffer);
+        if (buffer[pos + 6] != sep) { // '10' '=' 3 digits and the separator
+            throw new RuntimeException("Missing SOH " + sep + " at the end of the checksum");
+        }
         pos += 7;
         if (checkSum != check) {
             log.warn("Invalid checksum " + checkSum + " != " + check + " : message ignored.");
@@ -177,6 +230,11 @@ class FixReaderImpl implements FixReader {
 
     public Glob readHeader() {
         msgCheck = 0;
+        currentFixStruct = null;
+        msgType = null;
+        // msgReadLen still holds the len of the previous message : without this reset, readNext would
+        // refuse to read a message that follows one whose BodyLength happens to reach the sentinel.
+        msgReadLen = 0;
         messageLen = 1000; // first read break on separator and we don't know yet the message len
         // read fix version
         if (!readNext()) {
@@ -187,7 +245,7 @@ class FixReaderImpl implements FixReader {
         if (!Arrays.equals(version, 0, version.length, buffer,
                 equalAt + 1, endAt)) {
             throw new RuntimeException("invalid version. " + fixModel.getVersion() + " was expected but got " +
-                                       new String(buffer, equalAt + 1, endAt));
+                                       new String(buffer, equalAt + 1, endAt - equalAt - 1, StandardCharsets.ISO_8859_1));
         }
 
         //read message len
@@ -197,6 +255,11 @@ class FixReaderImpl implements FixReader {
 //        int msgLenId = currentReadId; //Utils.getIntAt(startAt, equalAt, buffer);
         checkId(currentReadId, 9);
         messageLen = Utils.getIntAt(equalAt + 1, endAt, buffer);
+        if (messageLen < 0 || messageLen > MAX_BODY_LENGTH) {
+            // also catches the int overflow of getIntAt on a very long value. Everything read from
+            // the body is sized against messageLen, we cannot let the peer make it arbitrary.
+            throw new RuntimeException("Invalid BodyLength " + messageLen + ", " + MAX_BODY_LENGTH + " max.");
+        }
         msgReadLen = 0;
         if (!readNext()) {
             return null;
@@ -316,6 +379,7 @@ class FixReaderImpl implements FixReader {
                 }
                 case GroupReader groupReader -> {
                     final int groupCount = Utils.getIntAt(equalAt + 1, endAt, buffer);
+                    checkGroupCount(groupCount);
                     Glob[] group = new Glob[groupCount];
                     if (groupCount == 0) {
                         readNext();
@@ -335,7 +399,9 @@ class FixReaderImpl implements FixReader {
     }
 
     public boolean readNext() {
-        if (messageLen == msgReadLen) {
+        // >= and not == : on a wrong BodyLength msgReadLen jumps over messageLen and we would
+        // otherwise keep reading the following messages forever. readOneMessage reports the overshoot.
+        if (msgReadLen >= messageLen) {
             currentReadId = -1;
             return false;
         }
@@ -382,7 +448,7 @@ class FixReaderImpl implements FixReader {
             startAt = 0;
         }
         if (pos != startAt) {
-            final int read = reader.read(buffer, length, buffer.length - pos);
+            final int read = reader.read(buffer, length, buffer.length - length);
             if (read == -1) {
                 throw new RuntimeException("Unexpected end of stream");
             }
