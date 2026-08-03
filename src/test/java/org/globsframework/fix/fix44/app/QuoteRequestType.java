@@ -34,9 +34,9 @@ public class QuoteRequestType {
 
     public static class NoRelatedSym {
         public static final GlobType TYPE;
-        public static final GlobField instrument;
+        public static final GlobField<InstrumentType> instrument;
         // FinancingDetails component - skipped for now if not used elsewhere or very complex
-        public static final GlobArrayField underlyings;
+        public static final GlobArrayField<NoUnderlyings> underlyings;
         public static final StringField prevClosePx;
         public static final IntegerField quoteRequestType;
         public static final IntegerField quoteType;
@@ -45,29 +45,29 @@ public class QuoteRequestType {
         public static final StringField tradeOriginationDate;
         public static final StringField side;
         public static final IntegerField qtyType;
-        public static final GlobField orderQtyData;
+        public static final GlobField<OrderQtyDataType> orderQtyData;
         public static final StringField settlType;
         public static final StringField settlDate;
         public static final StringField settlDate2;
         public static final StringField orderQty2;
         public static final StringField currency;
-        public static final GlobArrayField stipulations;
+        public static final GlobArrayField<NoStipulations> stipulations;
         public static final StringField account;
         public static final IntegerField acctIDSource;
         public static final IntegerField accountType;
-        public static final GlobArrayField legs;
-        public static final GlobArrayField quoteQualifiers;
+        public static final GlobArrayField<NoLegs> legs;
+        public static final GlobArrayField<NoQuoteQualifiers> quoteQualifiers;
         public static final IntegerField quotePriceType;
         public static final StringField ordType;
         public static final StringField validUntilTime;
         public static final StringField expireTime;
         public static final StringField transactTime;
-        public static final GlobField spreadOrBenchmarkCurveData;
+        public static final GlobField<?> spreadOrBenchmarkCurveData;
         public static final IntegerField priceType;
         public static final StringField price;
         public static final StringField price2;
-        public static final GlobField yieldData;
-        public static final GlobField parties;
+        public static final GlobField<YieldDataType> yieldData;
+        public static final GlobField<PartiesType> parties;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NoRelatedSym");
@@ -111,7 +111,7 @@ public class QuoteRequestType {
 
     public static class NoUnderlyings {
         public static final GlobType TYPE;
-        public static final GlobField underlyingInstrument;
+        public static final GlobField<InstrumentType> underlyingInstrument;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NoUnderlyings");
@@ -149,14 +149,14 @@ public class QuoteRequestType {
 
     public static class NoLegs {
         public static final GlobType TYPE;
-        public static final GlobField instrumentLeg;
+        public static final GlobField<InstrumentType> instrumentLeg;
         public static final StringField legQty;
         public static final IntegerField legSwapType;
         public static final StringField legSettlType;
         public static final StringField legSettlDate;
-        public static final GlobArrayField legStipulations;
-        public static final GlobField nestedParties;
-        public static final GlobField legBenchmarkCurveData;
+        public static final GlobArrayField<NoStipulations> legStipulations;
+        public static final GlobField<PartiesType> nestedParties;
+        public static final GlobField<LegBenchmarkCurveDataType> legBenchmarkCurveData;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NoLegs");

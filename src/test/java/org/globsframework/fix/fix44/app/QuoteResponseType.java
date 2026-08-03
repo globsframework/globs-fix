@@ -24,25 +24,25 @@ public class QuoteResponseType {
     public static final StringField orderCapacity;
     public static final StringField ioiid;
     public static final IntegerField quoteType;
-    public static final GlobArrayField quoteQualifiers;
-    public static final GlobField parties;
+    public static final GlobArrayField<?> quoteQualifiers;
+    public static final GlobField<?> parties;
     public static final StringField tradingSessionID;
     public static final StringField tradingSessionSubID;
-    public static final GlobField instrument;
+    public static final GlobField<?> instrument;
     // FinancingDetails skip
-    public static final GlobArrayField underlyings;
+    public static final GlobArrayField<?> underlyings;
     public static final StringField side;
-    public static final GlobField orderQtyData;
+    public static final GlobField<?> orderQtyData;
     public static final StringField settlType;
     public static final StringField settlDate;
     public static final StringField settlDate2;
     public static final StringField orderQty2;
     public static final StringField currency;
-    public static final GlobArrayField stipulations;
+    public static final GlobArrayField<?> stipulations;
     public static final StringField account;
     public static final IntegerField acctIDSource;
     public static final IntegerField accountType;
-    public static final GlobArrayField legs;
+    public static final GlobArrayField<?> legs;
     public static final StringField bidPx;
     public static final StringField offerPx;
     public static final StringField mktBidPx;
@@ -56,7 +56,7 @@ public class QuoteResponseType {
 
     public static class NoUnderlyings {
         public static final GlobType TYPE;
-        public static final GlobField underlyingInstrument;
+        public static final GlobField<InstrumentType> underlyingInstrument;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("QuoteRespNoUnderlyings");
@@ -68,17 +68,17 @@ public class QuoteResponseType {
 
     public static class NoLegs {
         public static final GlobType TYPE;
-        public static final GlobField instrumentLeg;
+        public static final GlobField<InstrumentType> instrumentLeg;
         public static final StringField legQty;
         public static final IntegerField legSwapType;
         public static final StringField legSettlType;
         public static final StringField legSettlDate;
-        public static final GlobArrayField legStipulations;
-        public static final GlobField nestedParties;
+        public static final GlobArrayField<QuoteRequestType.NoStipulations> legStipulations;
+        public static final GlobField<PartiesType> nestedParties;
         public static final IntegerField legPriceType;
         public static final StringField legBidPx;
         public static final StringField legOfferPx;
-        public static final GlobField legBenchmarkCurveData;
+        public static final GlobField<QuoteRequestType.LegBenchmarkCurveDataType> legBenchmarkCurveData;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("QuoteRespNoLegs");
