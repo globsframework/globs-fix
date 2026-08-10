@@ -273,7 +273,7 @@ class FixDataFieldTest {
         public static final BytesField rawData;
 
         @Target(LineType.class)
-        public static final GlobArrayField lines;
+        public static final GlobArrayField<LineType> lines;
 
         static {
             final GlobTypeBuilder builder = GlobTypeBuilderFactory.create("News");

@@ -21,7 +21,7 @@ public class ExecutionReportType {
     public static final StringField symbolSfx;
     public static final StringField securityID;
     public static final StringField securityIDSource;
-    public static final GlobArrayField securityAltIDs;
+    public static final GlobArrayField<InstrumentType.NoSecurityAltID> securityAltIDs;
     public static final IntegerField product;
     public static final StringField cfiCode;
     public static final StringField securityType;

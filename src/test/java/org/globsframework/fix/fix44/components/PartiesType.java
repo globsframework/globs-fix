@@ -13,14 +13,14 @@ import org.globsframework.fix.dictionary.model.FixGroupType;
 public class PartiesType {
     public static final GlobType TYPE;
 
-    public static final GlobArrayField partyIDs;
+    public static final GlobArrayField<NoPartyIDs> partyIDs;
 
     public static class NoPartyIDs {
         public static final GlobType TYPE;
         public static final StringField partyID;
         public static final StringField partyIDSource;
         public static final IntegerField partyRole;
-        public static final GlobArrayField partySubIDs;
+        public static final GlobArrayField<NoPartySubIDs> partySubIDs;
 
         static {
             GlobTypeBuilder builder = GlobTypeBuilderFactory.create("NoPartyIDs");

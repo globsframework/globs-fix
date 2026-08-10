@@ -29,6 +29,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.security.DrbgParameters;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -103,7 +104,7 @@ public class FixReadWriteWithComponentInGroup {
     public static class PartialNews {
         public static final GlobType TYPE;
 
-        public static final GlobArrayField relatedInstr;
+        public static final GlobArrayField<DrbgParameters> relatedInstr;
 
         public static MutableGlob create(Glob... related) {
             return TYPE.instantiate()
@@ -121,7 +122,7 @@ public class FixReadWriteWithComponentInGroup {
             public static final GlobType TYPE;
 
             @Target(SecurityAltType.class)
-            public static final GlobArrayField securityAltID;
+            public static final GlobArrayField<SecurityAltType> securityAltID;
 
 
             public static Glob create(Glob...sec) {

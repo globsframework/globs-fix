@@ -213,7 +213,7 @@ class FixReaderInvalidInputTest {
         public static final GlobType TYPE;
 
         @Target(RelatedSymType.class)
-        public static final GlobArrayField relatedSym;
+        public static final GlobArrayField<RelatedSymType> relatedSym;
 
         static {
             final GlobTypeBuilder builder = GlobTypeBuilderFactory.create("News");

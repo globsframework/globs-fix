@@ -208,7 +208,7 @@ class FixReaderBuilderTest {
         public static final StringField Symbol;
 
         @Target(SecurityAltType.class)
-        public static final GlobArrayField securityAltID;
+        public static final GlobArrayField<SecurityAltType> securityAltID;
 
 
         public static MutableGlob create(String ioiid, String type, String symbol, Glob...sec) {
@@ -235,7 +235,7 @@ class FixReaderBuilderTest {
             public static final StringField Symbol;
 
             @Target(SecurityAltType.class)
-            public static final GlobArrayField securityAltID;
+            public static final GlobArrayField<SecurityAltType> securityAltID;
 
             public static Glob create(String symbol, Glob... sec) {
                 return TYPE.instantiate()

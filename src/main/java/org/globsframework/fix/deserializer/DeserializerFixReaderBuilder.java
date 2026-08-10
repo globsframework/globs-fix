@@ -105,7 +105,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                     boolean found = false;
                     if (type != null) {
                         for (Field field : type.getFields()) {
-                            if (field instanceof GlobArrayField globArrayField) {
+                            if (field instanceof GlobArrayField<?> globArrayField) {
                                 if (globArrayField.getTargetType().findOptAnnotation(FixGroupType.UNIQUE_KEY)
                                         .map(FixGroupType.name)
                                         .filter(id -> Objects.equals(id, countField.getName())).isPresent()) {

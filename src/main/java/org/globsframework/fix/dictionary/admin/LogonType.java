@@ -23,7 +23,7 @@ public class LogonType {
     public static final BooleanField resetSeqNumFlag;
     public static final IntegerField nextExpectedMsgSeqNum;
     public static final IntegerField maxMessageSize;
-    public static final GlobArrayField msgTypes;
+    public static final GlobArrayField<NoMsgTypes> msgTypes;
     public static final BooleanField testMessageIndicator;
     public static final StringField username;
     public static final StringField password;

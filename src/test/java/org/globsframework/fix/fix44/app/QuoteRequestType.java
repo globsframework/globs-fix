@@ -23,7 +23,7 @@ public class QuoteRequestType {
     public static final StringField rfqReqID;
     public static final StringField clOrdID;
     public static final StringField orderCapacity;
-    public static final GlobArrayField relatedSyms;
+    public static final GlobArrayField<NoRelatedSym> relatedSyms;
     public static final StringField text;
     public static final IntegerField encodedTextLen;
     public static final StringField encodedText;

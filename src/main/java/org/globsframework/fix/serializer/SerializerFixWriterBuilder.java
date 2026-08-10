@@ -101,15 +101,16 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
     private static Map<Field, FieldWrite> extracted(Map<Field, FieldWrite> fieldWrites, List<FixElement> elements, GlobType messageType) {
         Map<String, Field> fields = new HashMap<>();
         for (Field field : messageType.getFields()) {
-            switch (field) {
-                case GlobArrayField gal -> gal.getTargetType().findOptAnnotation(FixGroupType.UNIQUE_KEY)
+            if (Objects.requireNonNull(field) instanceof GlobArrayField<?> gal) {
+                gal.getTargetType().findOptAnnotation(FixGroupType.UNIQUE_KEY)
                         .map(FixGroupType.name)
                         .ifPresent(s -> {
                             if (fields.put(s, field) != null) {
                                 throw new RuntimeException("Duplicate group name " + s + " on " + field.getFullName());
                             }
                         });
-                default -> field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
+            } else {
+                field.findOptAnnotation(FixFieldType.UNIQUE_KEY)
                         .map(FixFieldType.name)
                         .ifPresent(s -> {
                             if (fields.put(s, field) != null) {
@@ -166,7 +167,7 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     final String firstFieldName = fixGroup.getCountField().getName();
                     final Field field = fields.get(firstFieldName);
                     if (field != null) {
-                        if (field instanceof GlobArrayField globArrayField) {
+                        if (field instanceof GlobArrayField<?> globArrayField) {
                             final Map<Field, FieldWrite> writes = extracted(new HashMap<>(), fixGroup.getElements(), globArrayField.getTargetType());
                             final byte[] idBytes = Integer.toString(fixGroup.getCountField().getId()).getBytes(StandardCharsets.ISO_8859_1);
                             fieldWrites.put(field, new GroupFieldWrite(globArrayField, idBytes, writes));
@@ -223,11 +224,11 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
     }
 
     private final static class GroupFieldWrite implements FieldWrite {
-        private final GlobArrayField globArrayField;
+        private final GlobArrayField<?> globArrayField;
         private final byte[] idBytes;
         private final FieldWrite[] writes;
 
-        public GroupFieldWrite(GlobArrayField globArrayField, byte[] idBytes, Map<Field, FieldWrite> writes) {
+        public GroupFieldWrite(GlobArrayField<?> globArrayField, byte[] idBytes, Map<Field, FieldWrite> writes) {
             this.globArrayField = globArrayField;
             this.idBytes = idBytes;
             this.writes = writes.values().toArray(new FieldWrite[0]);
