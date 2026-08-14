@@ -23,6 +23,42 @@ either fakes/helpers (`TestUserSession`, `CompletableByteReader`, `SingleSeriali
 
 Tests use JUnit 5 with hand-written fakes. There is no mocking framework — do not introduce one.
 
+### Benchmarks
+
+`UtilsBenchmark` covers the byte utilities; **`FixMessagePerf` is the end-to-end one**: one NewOrderSingle of
+19 fields spanning five leaf kinds (String, Integer, Boolean, DateTime, StringArray), written and read back,
+under core's `DefaultGlob` and both ASM flavours of `globs-generate` (test-scoped, `5.3-SNAPSHOT`, needs an
+`mvn install` in `../globs-generate`; the flavour is a `@Param`, so JMH forks one JVM per flavour). The reader
+is built once and fed a *cyclic* `ByteReader` replaying the same rendered message, as a session would — FIX
+messages are self-framing — so its 10 KB buffer is not what gets measured.
+
+```bash
+mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
+java -cp target/classes:target/test-classes:$(cat /tmp/cp.txt) org.openjdk.jmh.Main FixMessagePerf -p flavour=OBJECT
+```
+
+`FixMessagePerfFixtureTest` is the guard: a field the dictionary does not place in NewOrderSingle would simply
+not be written and the benchmark would quietly measure a shorter message, so the test asserts every tag is on
+the wire and comes back. Run it after touching the fixture.
+
+Measured (3 forks, ops/s):
+
+| | DEFAULT | OBJECT | PRIMITIVE |
+| --- | --- | --- | --- |
+| `write` | **3.22 M** | 2.92 M | 2.93 M |
+| `read` | **1.15 M** | 1.11 M | 1.09 M |
+
+Read that the way globs-grpc had to: **generating the Globs is a small loss here** (−9 % on write, −4 to −6 %
+on read), because one accessor class per field means more receivers at the same megamorphic call sites —
+`MessageFieldWrite.writeAt` loops over a `FieldWrite[]`, one call site for every writer class in the process,
+and reading ends on `DirectFieldReader.read`, one call site for every reader class. That is exactly the state
+globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there). The same move is
+possible here in principle, but *not* with the SPI as it stands: `FieldWrite.writeAt` returns the new buffer
+index and `DirectFieldReader.read` takes the value's byte range, where `FieldValueFunction` /
+`MutableFunctionWrite` return void and carry only objects. It would take a third emitter in globs-generate,
+over an int-returning function interface — the ASM is ~40 lines from what `AsmCallerWriteGenerator` already
+does — and until then converting the leaves to records buys nothing, there being no constant receiver to fold.
+
 ## Architecture
 
 A FIX engine where messages are `Glob` instances (globs-framework dynamic records) rather than generated

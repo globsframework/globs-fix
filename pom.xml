@@ -168,7 +168,14 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>5.9.0</version>
+            <version>5.11-SNAPSHOT</version>
+        </dependency>
+        <!-- test only : FixMessagePerf measures the writer and the reader over the Globs this generates -->
+        <dependency>
+            <groupId>org.globsframework</groupId>
+            <artifactId>globs-generate</artifactId>
+            <version>5.3-SNAPSHOT</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.globsframework</groupId>
