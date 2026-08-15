@@ -6,13 +6,10 @@ import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
-final class SmallStringFieldWrite implements FieldWrite {
-    private final GlobGetStringAccessor accessor;
-    private final byte[] id;
+record SmallStringFieldWrite(byte[] id, GlobGetStringAccessor accessor) implements FieldWrite {
 
     public SmallStringFieldWrite(int id, GlobGetStringAccessor getAccessor) {
-        this.accessor = getAccessor;
-        this.id = Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1);
+        this(Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1), getAccessor);
     }
 
     @Override

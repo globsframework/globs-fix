@@ -1,6 +1,5 @@
 package org.globsframework.fix.serializer;
 
-import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.engine.FixMessage;
 import org.globsframework.fix.engine.FixMessageImpl;

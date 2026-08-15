@@ -4,14 +4,7 @@ import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-class FieldGroupReader implements GroupReader {
-    private final GlobArrayField<?> globArrayField;
-    private final FixStruct fixStruct;
-
-    public FieldGroupReader(GlobArrayField<?> globArrayField, FixStruct fixStruct) {
-        this.globArrayField = globArrayField;
-        this.fixStruct = fixStruct;
-    }
+record FieldGroupReader(GlobArrayField<?> globArrayField, FixStruct fixStruct) implements GroupReader {
 
     @Override
     public FixStruct sub() {

@@ -4,12 +4,7 @@ import org.globsframework.core.metamodel.fields.BooleanField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-class BooleanFieldDirectFieldReader implements DirectFieldReader {
-    private final BooleanField booleanField;
-
-    public BooleanFieldDirectFieldReader(BooleanField booleanField) {
-        this.booleanField = booleanField;
-    }
+record BooleanFieldDirectFieldReader(BooleanField booleanField) implements DirectFieldReader {
 
     @Override
     public boolean isSet(Glob data, int currentReadId) {

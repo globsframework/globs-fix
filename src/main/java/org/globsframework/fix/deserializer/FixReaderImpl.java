@@ -385,7 +385,7 @@ class FixReaderImpl implements FixReader {
     private MutableGlob read(FixStruct fixStruct, MutableGlob data) {
         while (currentReadId != -1) {
             final FieldReader fieldReader = fixStruct.getFieldReader(currentReadId);
-            if (fieldReader == null) { // do not belong to this object, so it belong to one ot it's parent
+            if (fieldReader == null) { // do not belong to this object, so it belongs to one of it's parents
                 return data;
             }
             if (fieldReader.isSet(data, currentReadId)) {

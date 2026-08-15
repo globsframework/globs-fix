@@ -3,12 +3,7 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-class NoFieldGroupReader implements GroupReader {
-    private final FixStruct fixStruct;
-
-    public NoFieldGroupReader(FixStruct fixStruct) {
-        this.fixStruct = fixStruct;
-    }
+record NoFieldGroupReader(FixStruct fixStruct) implements GroupReader {
 
     @Override
     public FixStruct sub() {

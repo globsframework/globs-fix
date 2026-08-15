@@ -4,12 +4,7 @@ import org.globsframework.core.metamodel.fields.BytesField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-class BytesFieldDataReader implements DataFieldReader {
-    private final BytesField field;
-
-    public BytesFieldDataReader(BytesField field) {
-        this.field = field;
-    }
+record BytesFieldDataReader(BytesField field) implements DataFieldReader {
 
     @Override
     public void read(byte[] payload, MutableGlob data) {

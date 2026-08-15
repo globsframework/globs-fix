@@ -5,14 +5,7 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 
-class IntFieldDataLengthReader implements DataLengthFieldReader {
-    private final IntegerField field;
-    private final int dataTag;
-
-    public IntFieldDataLengthReader(IntegerField field, int dataTag) {
-        this.field = field;
-        this.dataTag = dataTag;
-    }
+record IntFieldDataLengthReader(IntegerField field, int dataTag) implements DataLengthFieldReader {
 
     @Override
     public int dataTag() {

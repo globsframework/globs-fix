@@ -5,12 +5,7 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.Utils;
 
-class IntFieldDirectFieldReader implements DirectFieldReader {
-    private final IntegerField integerField;
-
-    public IntFieldDirectFieldReader(IntegerField integerField) {
-        this.integerField = integerField;
-    }
+record IntFieldDirectFieldReader(IntegerField integerField) implements DirectFieldReader {
 
     @Override
     public boolean isSet(Glob data, int currentReadId) {

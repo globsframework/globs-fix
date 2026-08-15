@@ -10,12 +10,7 @@ import java.nio.charset.StandardCharsets;
 A DATA field bound to a StringField : kept for the types written before DATA was mapped to a
 BytesField. Binary content that is not ISO-8859-1 text should use a BytesField.
  */
-class StringFieldDataReader implements DataFieldReader {
-    private final StringField field;
-
-    public StringFieldDataReader(StringField field) {
-        this.field = field;
-    }
+record StringFieldDataReader(StringField field) implements DataFieldReader {
 
     @Override
     public void read(byte[] payload, MutableGlob data) {

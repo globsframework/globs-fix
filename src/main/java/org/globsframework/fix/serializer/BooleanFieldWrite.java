@@ -6,13 +6,10 @@ import org.globsframework.fix.Utils;
 
 import java.nio.charset.StandardCharsets;
 
-final class BooleanFieldWrite implements FieldWrite {
-    private final GlobGetBooleanAccessor accessor;
-    private final byte[] id;
+record BooleanFieldWrite(byte[] id, GlobGetBooleanAccessor accessor) implements FieldWrite {
 
     public BooleanFieldWrite(int id, GlobGetBooleanAccessor getAccessor) {
-        this.id = Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1);
-        accessor = getAccessor;
+        this(Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1), getAccessor);
     }
 
     @Override

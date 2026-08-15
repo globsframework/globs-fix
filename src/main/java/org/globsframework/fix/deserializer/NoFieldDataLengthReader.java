@@ -7,12 +7,7 @@ import org.globsframework.core.model.MutableGlob;
 The GlobType does not bind the length, but its value still drives the reading of the data field
 that follows, so the tag cannot simply be skipped.
  */
-class NoFieldDataLengthReader implements DataLengthFieldReader {
-    private final int dataTag;
-
-    public NoFieldDataLengthReader(int dataTag) {
-        this.dataTag = dataTag;
-    }
+record NoFieldDataLengthReader(int dataTag) implements DataLengthFieldReader {
 
     @Override
     public int dataTag() {

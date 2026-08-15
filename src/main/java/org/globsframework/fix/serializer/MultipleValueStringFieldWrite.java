@@ -9,13 +9,10 @@ import org.globsframework.fix.dictionary.FixField;
 
 import java.nio.charset.StandardCharsets;
 
-final class MultipleValueStringFieldWrite implements FieldWrite {
-    private final GlobGetStringArrayAccessor accessor;
-    private final byte[] id;
+record MultipleValueStringFieldWrite(byte[] id, GlobGetStringArrayAccessor accessor) implements FieldWrite {
 
     public MultipleValueStringFieldWrite(int id, GlobGetStringArrayAccessor getAccessor) {
-        this.accessor = getAccessor;
-        this.id = Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1);
+        this(Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1), getAccessor);
     }
 
     public static FieldWrite create(FixField fixField, int id, GlobGetStringArrayAccessor getAccessor) {

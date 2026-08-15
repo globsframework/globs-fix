@@ -9,15 +9,12 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
-final class DateTimeFieldWrite implements FieldWrite {
+record DateTimeFieldWrite(byte[] id, GlobGetDateTimeAccessor accessor) implements FieldWrite {
     public static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS");
     public static final ZoneId GMT = ZoneId.of("GMT");
-    private final GlobGetDateTimeAccessor accessor;
-    private final byte[] id;
 
     public DateTimeFieldWrite(int id, GlobGetDateTimeAccessor getAccessor) {
-        this.id = Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1);
-        accessor = getAccessor;
+        this(Integer.toString(id).getBytes(StandardCharsets.ISO_8859_1), getAccessor);
     }
 
     @Override

@@ -6,12 +6,7 @@ import org.globsframework.core.model.MutableGlob;
 
 import java.nio.charset.StandardCharsets;
 
-class StringFieldDirectFieldReader implements DirectFieldReader {
-    private final StringField field;
-
-    public StringFieldDirectFieldReader(StringField field) {
-        this.field = field;
-    }
+record StringFieldDirectFieldReader(StringField field) implements DirectFieldReader {
 
     @Override
     public void read(int from, int to, byte[] buffer, MutableGlob data) {

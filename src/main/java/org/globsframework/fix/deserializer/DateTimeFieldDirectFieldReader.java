@@ -10,13 +10,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
-class DateTimeFieldDirectFieldReader implements DirectFieldReader {
+record DateTimeFieldDirectFieldReader(DateTimeField dateTimeField) implements DirectFieldReader {
     public static final ZoneId GMT = ZoneId.of("GMT");
-    private final DateTimeField dateTimeField;
-
-    public DateTimeFieldDirectFieldReader(DateTimeField dateTimeField) {
-        this.dateTimeField = dateTimeField;
-    }
 
     @Override
     public boolean isSet(Glob data, int currentReadId) {

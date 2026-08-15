@@ -3,7 +3,7 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 
-class NoFieldDataReader implements DataFieldReader {
+final class NoFieldDataReader implements DataFieldReader {
 
     @Override
     public void read(byte[] payload, MutableGlob data) {
