@@ -346,11 +346,7 @@ class FixReaderImpl implements FixReader {
                 return;
             }
             switch (fieldReader) {
-                case ComponentReader componentReader -> {
-                    final FixStruct component = componentReader.getComponent();
-                    readData(component);
-                }
-                case DirectFieldReader directFieldReader -> {
+                case DirectFieldReader _ -> {
                     if (!readNext()) {
                         return;
                     }
@@ -361,7 +357,7 @@ class FixReaderImpl implements FixReader {
                         return;
                     }
                 }
-                case DataFieldReader dataFieldReader -> {
+                case DataFieldReader _ -> {
                     pendingPayload = null; // already consumed by readDataField
                     if (!readNext()) {
                         return;
@@ -392,20 +388,6 @@ class FixReaderImpl implements FixReader {
                 return data;
             }
             switch (fieldReader) {
-                case ComponentReader componentReader -> {
-                    final FixStruct component = componentReader.getComponent();
-                    MutableGlob sub = componentReader.get(data);
-                    if (sub != null) {// this code is to protect against badly ordered fields
-                        componentReader.update(read(component, sub), data);
-                    } else {
-                        final GlobType type = component.getType();
-                        if (type != null) {
-                            componentReader.update(read(component, type.instantiate()), data);
-                        } else {
-                            skip(component);
-                        }
-                    }
-                }
                 case DirectFieldReader directFieldReader -> {
                     directFieldReader.read(equalAt + 1, endAt, buffer, data);
                     if (!readNext()) {
