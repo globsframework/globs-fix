@@ -3,8 +3,10 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.set.GlobSetGlobArrayAccessor;
 
-record FieldGroupReader(GlobArrayField<?> globArrayField, FixStruct fixStruct) implements GroupReader {
+record FieldGroupReader(GlobArrayField<?> globArrayField, GlobSetGlobArrayAccessor accessor,
+                        FixStruct fixStruct) implements GroupReader {
 
     @Override
     public FixStruct sub() {
@@ -13,7 +15,7 @@ record FieldGroupReader(GlobArrayField<?> globArrayField, FixStruct fixStruct) i
 
     @Override
     public void update(Glob[] group, MutableGlob data) {
-        data.set(globArrayField, group);
+        accessor.set(data, group);
     }
 
     @Override

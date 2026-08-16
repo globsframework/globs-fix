@@ -41,15 +41,23 @@ java -cp target/classes:target/test-classes:$(cat /tmp/cp.txt) org.openjdk.jmh.M
 not be written and the benchmark would quietly measure a shorter message, so the test asserts every tag is on
 the wire and comes back. Run it after touching the fixture.
 
-Measured (3 forks, ops/s):
+Measured (3 forks, ops/s; one machine, one session — compare columns, not absolute values against an older
+run):
 
 | | DEFAULT | OBJECT | PRIMITIVE |
 | --- | --- | --- | --- |
-| `write` | **3.22 M** | 2.92 M | 2.93 M |
-| `read` | **1.15 M** | 1.11 M | 1.09 M |
+| `write` | **2.84 M** | 2.72 M | 2.64 M |
+| `read` | **1.46 M** | 1.37 M | 1.31 M |
+| `read`, before the set accessors | 1.21 M | 1.20 M | 1.14 M |
 
-Read that the way globs-grpc had to: **generating the Globs is a small loss here** (−9 % on write, −4 to −6 %
-on read), because one accessor class per field means more receivers at the same megamorphic call sites —
+The last row is what the readers cost while they still called `data.set(field, value)`: giving every
+`FieldReader` the field's `GlobSetAccessor` (resolved once in `DeserializerFixReaderBuilder`, `setNative` for
+int and boolean) is worth **+21 % on DEFAULT and +14 to +15 % on the generated flavours**, and leaves `write`
+untouched — it already went through `GlobGetAccessor`. The readers keep the `Field` too, but only for
+`isSet`, which the set accessor does not cover.
+
+Read the rest the way globs-grpc had to: **generating the Globs is a small loss here** (−4 to −7 % on write,
+−6 to −10 % on read), because one accessor class per field means more receivers at the same megamorphic call sites —
 `MessageFieldWrite.writeAt` loops over a `FieldWrite[]`, one call site for every writer class in the process,
 and reading ends on `DirectFieldReader.read`, one call site for every reader class. That is exactly the state
 globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there). The same move is
@@ -112,8 +120,9 @@ of hand-written bound types.
 
 `SerializerFixWriterBuilder.create(...)` and `DeserializerFixReaderBuilder.create(...)` walk the
 `FixModel` × `GlobModel` once and build, per message type, a table of `FieldWrite` / `FieldReader`
-closures (readers keyed by tag in an `IntHashMap`). Each closure captures a typed glob accessor, so
-serialization is a straight loop over primitives.
+closures (readers keyed by tag in an `IntHashMap`). Each closure captures a typed glob accessor — a
+`GlobGetAccessor` on the write side, a `GlobSetAccessor` on the read side — so serialization is a straight
+loop over primitives and neither direction looks a `Field` up on a `Glob`.
 
 `FixWriterImpl` owns a single 1 MB `byte[]`. It writes the body starting at `OFFSET = 32` and then
 **back-fills** `8=BeginString`, `9=BodyLength` and `35=MsgType` in the bytes *before* offset 32, asserting

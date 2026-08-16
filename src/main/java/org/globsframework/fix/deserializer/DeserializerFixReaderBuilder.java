@@ -77,7 +77,7 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                 case FixField fixField -> {
                     final Field field = fixFieldAccessorFixField.get(fixField.getName());
                     if (FixModelToGlobType.DATA.equals(fixField.getType())) {
-                        declareDataField(fieldReaders, fixFieldAccessorFixField, previousFixField, fixField, field);
+                        declareDataField(type, fieldReaders, fixFieldAccessorFixField, previousFixField, fixField, field);
                     }
                     else if (field == null) {
                         fieldReaders.put(fixField.getId(), new NoFieldDirectFieldReader());
@@ -85,15 +85,15 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                     else {
                         switch (field) {
                             case StringField stringField ->
-                                    fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField));
+                                    fieldReaders.put(fixField.getId(), new StringFieldDirectFieldReader(stringField, type.getSetAccessor(stringField)));
                             case StringArrayField stringField ->
-                                    fieldReaders.put(fixField.getId(), new MultipleValueStringFieldDirectFieldReader(stringField));
+                                    fieldReaders.put(fixField.getId(), new MultipleValueStringFieldDirectFieldReader(stringField, type.getSetAccessor(stringField)));
                             case IntegerField integerField ->
-                                    fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField));
+                                    fieldReaders.put(fixField.getId(), new IntFieldDirectFieldReader(integerField, type.getSetAccessor(integerField)));
                             case BooleanField booleanField ->
-                                    fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField));
+                                    fieldReaders.put(fixField.getId(), new BooleanFieldDirectFieldReader(booleanField, type.getSetAccessor(booleanField)));
                             case DateTimeField dateTimeField ->
-                                    fieldReaders.put(fixField.getId(), new DateTimeFieldDirectFieldReader(dateTimeField));
+                                    fieldReaders.put(fixField.getId(), new DateTimeFieldDirectFieldReader(dateTimeField, type.getSetAccessor(dateTimeField)));
                             default ->
                                     throw new RuntimeException("Unsupported field type: " + field.getDataType() + " for " + field.getFullName());
                         }
@@ -116,7 +116,8 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
                                     found = true;
                                     final FixStruct fixStruct = computeFixStruct(
                                             globArrayField.getTargetType(), fixGroup, fixFieldAccessor);
-                                    fieldReaders.put(countField.getId(), new FieldGroupReader(globArrayField, fixStruct));
+                                    fieldReaders.put(countField.getId(), new FieldGroupReader(globArrayField,
+                                            type.getSetAccessor(globArrayField), fixStruct));
                                 }
                             }
                         }
@@ -137,19 +138,19 @@ public class DeserializerFixReaderBuilder implements FixReaderBuilder {
     A DATA field and the LENGTH field that precedes it are read as a pair : the length drives the
     parsing, so it gets a reader of its own even when the GlobType binds neither of them.
      */
-    private static void declareDataField(IntHashMap<FieldReader> fieldReaders, Map<String, Field> boundFields,
+    private static void declareDataField(GlobType type, IntHashMap<FieldReader> fieldReaders, Map<String, Field> boundFields,
                                          FixField lengthFixField, FixField dataFixField, Field dataField) {
         if (lengthFixField == null || !FixModelToGlobType.LENGTH.equals(lengthFixField.getType())) {
             throw new RuntimeException("Data field " + dataFixField.getName() + " is not preceded by a length field");
         }
         final Field boundLength = boundFields.get(lengthFixField.getName());
         fieldReaders.put(lengthFixField.getId(), boundLength instanceof IntegerField integerField
-                ? new IntFieldDataLengthReader(integerField, dataFixField.getId())
+                ? new IntFieldDataLengthReader(integerField, type.getSetAccessor(integerField), dataFixField.getId())
                 : new NoFieldDataLengthReader(dataFixField.getId()));
         fieldReaders.put(dataFixField.getId(), switch (dataField) {
             case null -> new NoFieldDataReader();
-            case BytesField bytesField -> new BytesFieldDataReader(bytesField);
-            case StringField stringField -> new StringFieldDataReader(stringField);
+            case BytesField bytesField -> new BytesFieldDataReader(bytesField, type.getSetAccessor(bytesField));
+            case StringField stringField -> new StringFieldDataReader(stringField, type.getSetAccessor(stringField));
             default -> throw new RuntimeException("Unsupported field type: " + dataField.getDataType() +
                                                   " for the data field " + dataField.getFullName());
         });

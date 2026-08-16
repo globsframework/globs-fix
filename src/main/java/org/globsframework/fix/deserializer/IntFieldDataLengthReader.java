@@ -3,9 +3,11 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
 import org.globsframework.fix.Utils;
 
-record IntFieldDataLengthReader(IntegerField field, int dataTag) implements DataLengthFieldReader {
+record IntFieldDataLengthReader(IntegerField field, GlobSetIntAccessor accessor,
+                                int dataTag) implements DataLengthFieldReader {
 
     @Override
     public int dataTag() {
@@ -14,7 +16,7 @@ record IntFieldDataLengthReader(IntegerField field, int dataTag) implements Data
 
     @Override
     public void read(int from, int to, byte[] buffer, MutableGlob data) {
-        data.set(field, Utils.getIntAt(from, to, buffer));
+        accessor.setNative(data, Utils.getIntAt(from, to, buffer));
     }
 
     @Override

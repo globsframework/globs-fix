@@ -3,6 +3,7 @@ package org.globsframework.fix.deserializer;
 import org.globsframework.core.metamodel.fields.DateTimeField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.set.GlobSetDateTimeAccessor;
 import org.globsframework.fix.Utils;
 
 import java.time.LocalDate;
@@ -10,7 +11,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
-record DateTimeFieldDirectFieldReader(DateTimeField dateTimeField) implements DirectFieldReader {
+record DateTimeFieldDirectFieldReader(DateTimeField dateTimeField,
+                                      GlobSetDateTimeAccessor accessor) implements DirectFieldReader {
     public static final ZoneId GMT = ZoneId.of("GMT");
 
     @Override
@@ -32,7 +34,7 @@ record DateTimeFieldDirectFieldReader(DateTimeField dateTimeField) implements Di
                             Utils.getIntAt(from + 15, from + 17, buffer),
                             to - from == 21 ? Utils.getIntAt(from + 18, from + 21, buffer) * 1_000_000 : 0
                     ), GMT);
-            data.set(dateTimeField, dateTime);
+            accessor.set(data, dateTime);
         }
     }
 }
