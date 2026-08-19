@@ -62,8 +62,8 @@ Read the rest the way globs-grpc had to: **generating the Globs is a small loss 
 and reading ends on `DirectFieldReader.read`, one call site for every reader class. That is exactly the state
 globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there). The same move is
 possible here in principle, but *not* with the SPI as it stands: `FieldWrite.writeAt` returns the new buffer
-index and `DirectFieldReader.read` takes the value's byte range, where `FieldValueFunction` /
-`MutableFunctionWrite` return void and carry only objects. It would take a third emitter in globs-generate,
+index and `DirectFieldReader.read` takes the value's byte range, where `FromGlobFunction` /
+`ToGlobFunction` return void and carry only objects. It would take a third emitter in globs-generate,
 over an int-returning function interface — the ASM is ~40 lines from what `AsmCallerWriteGenerator` already
 does — and until then converting the leaves to records buys nothing, there being no constant receiver to fold.
 
@@ -121,7 +121,7 @@ of hand-written bound types.
 `SerializerFixWriterBuilder.create(...)` and `DeserializerFixReaderBuilder.create(...)` walk the
 `FixModel` × `GlobModel` once and build, per message type, a table of `FieldWrite` / `FieldReader`
 closures (readers keyed by tag in an `IntHashMap`). Each closure captures a typed glob accessor — a
-`GlobGetAccessor` on the write side, a `GlobSetAccessor` on the read side — so serialization is a straight
+`GlobGetAccessor` on the to-Glob side, a `GlobSetAccessor` on the from-Glob side — so serialization is a straight
 loop over primitives and neither direction looks a `Field` up on a `Glob`.
 
 `FixWriterImpl` owns a single 1 MB `byte[]`. It writes the body starting at `OFFSET = 32` and then
