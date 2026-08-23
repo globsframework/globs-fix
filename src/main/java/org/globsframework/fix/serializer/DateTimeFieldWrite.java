@@ -18,10 +18,11 @@ record DateTimeFieldWrite(byte[] id, GlobGetDateTimeAccessor accessor) implement
     }
 
     @Override
-    public int writeAt(byte[] buffer, int at, Glob data) {
+    public void writeAt(WriteBuffer out, Glob data) {
         final ZonedDateTime value = accessor.get(data);
         if (value != null) {
-            at = Utils.transfert(buffer, at, id);
+            final byte[] buffer = out.buffer;
+            int at = Utils.transfert(buffer, out.at, id);
             buffer[at++] = '=';
             final ZonedDateTime dateTime = value.withZoneSameInstant(GMT);
             at = Utils.transfertInt(buffer, at, dateTime.getYear());
@@ -48,8 +49,8 @@ record DateTimeFieldWrite(byte[] id, GlobGetDateTimeAccessor accessor) implement
                 at = Utils.transfertInt(buffer, at, milli);
             }
             buffer[at++] = 0x1;
+            out.at = at;
         }
-        return at;
     }
 
     private static int write2Char(byte[] buffer, int at, int dayOfMonth) {

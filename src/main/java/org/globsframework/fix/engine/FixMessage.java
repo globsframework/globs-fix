@@ -26,9 +26,4 @@ public interface FixMessage {
     void update(DoubleField field, double value);
 
     void update(DateTimeField field, ZonedDateTime value);
-
-    UpdatedField getUpdatedFields();
-
-    record UpdatedField(short[] indexFields, int len) {
-    }
 }

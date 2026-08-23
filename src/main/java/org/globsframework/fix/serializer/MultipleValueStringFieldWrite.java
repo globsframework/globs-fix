@@ -23,11 +23,11 @@ record MultipleValueStringFieldWrite(byte[] id, GlobGetStringArrayAccessor acces
     }
 
     @Override
-    public int writeAt(byte[] buffer, int at, Glob data) {
+    public void writeAt(WriteBuffer out, Glob data) {
         final String[] s = accessor.get(data);
         if (s != null && s.length > 0) {
-            final int start = at;
-            at = Utils.transfert(buffer, at, id);
+            final byte[] buffer = out.buffer;
+            int at = Utils.transfert(buffer, out.at, id);
             buffer[at++] = '=';
             boolean lastIsSpace = false;
             for (String string : s) {
@@ -38,11 +38,11 @@ record MultipleValueStringFieldWrite(byte[] id, GlobGetStringArrayAccessor acces
                 }
             }
             if (!lastIsSpace) {
-                return start; // only empty values : write nothing
+                return; // only empty values : write nothing, at stays where it was
             }
             at--; // overwrite 0x20
             buffer[at++] = 0x1;
+            out.at = at;
         }
-        return at;
     }
 }

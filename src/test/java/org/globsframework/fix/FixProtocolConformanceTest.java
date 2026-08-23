@@ -2,6 +2,8 @@ package org.globsframework.fix;
 
 import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
+import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.fix.deserializer.BasicMsgSeqProvider;
 import org.globsframework.fix.deserializer.DeserializerFixReaderBuilder;
 import org.globsframework.fix.deserializer.FixMessageValue;
@@ -11,6 +13,10 @@ import org.globsframework.fix.dictionary.FixModel;
 import org.globsframework.fix.dictionary.admin.HeartbeatType;
 import org.globsframework.fix.dictionary.xml.FieldFactoryImpl;
 import org.globsframework.fix.dictionary.xml.ReadFixDictionary;
+import org.globsframework.fix.engine.FixMessage;
+import org.globsframework.fix.engine.FixMessageImpl;
+import org.globsframework.fix.fix44.app.NewOrderSingleType;
+import org.globsframework.fix.fix44.components.InstrumentType;
 import org.globsframework.fix.serializer.FixWriter;
 import org.globsframework.fix.serializer.SerializerFixWriterBuilder;
 import org.junit.jupiter.api.Test;
@@ -209,6 +215,68 @@ public class FixProtocolConformanceTest {
         final RuntimeException exception = assertThrows(RuntimeException.class, reader::read);
         assertTrue(exception.getMessage().contains("version"),
                 "expected a version error but got : " + exception.getMessage());
+    }
+
+    /*
+    FIX frames a repeating group on its delimiter — the first field the dictionary declares in the group —
+    so the fields of an entry have to go out in the dictionary's order. The body outside groups is free per
+    the spec, but is written in that same order : it is the only one that does not depend on how the JVM
+    happened to hash the Fields.
+     */
+    @Test
+    void fieldsAreWrittenInTheOrderOfTheDictionary() throws IOException {
+        final FixModel fixModel = loadModel();
+        final GlobModel globModel = new DefaultGlobModel(NewOrderSingleType.TYPE);
+        List<byte[]> datas = new ArrayList<>();
+        final FixWriter writer = createWriter(fixModel, globModel, datas);
+
+        final Glob altId = InstrumentType.NoSecurityAltID.TYPE.instantiate()
+                .set(InstrumentType.NoSecurityAltID.securityAltID, "ALT1")
+                .set(InstrumentType.NoSecurityAltID.securityAltIDSource, "8");
+        final Glob altId2 = InstrumentType.NoSecurityAltID.TYPE.instantiate()
+                .set(InstrumentType.NoSecurityAltID.securityAltID, "ALT2")
+                .set(InstrumentType.NoSecurityAltID.securityAltIDSource, "4");
+        final MutableGlob order = NewOrderSingleType.TYPE.instantiate()
+                .set(NewOrderSingleType.clOrdID, "order-1")
+                .set(NewOrderSingleType.symbol, "ACME.PA")
+                .set(NewOrderSingleType.securityType, "CS")
+                .set(NewOrderSingleType.securityAltIDs, new Glob[]{altId, altId2});
+
+        writer.write(HeaderType.create("SENDER", "TARGET"), order, null, false);
+
+        // header : BeginString, BodyLength, MsgType, SenderCompID, TargetCompID, MsgSeqNum, SendingTime
+        // body   : ClOrdID, then the Instrument component : Symbol, NoSecurityAltID(SecurityAltID,
+        //          SecurityAltIDSource) twice, SecurityType
+        assertEquals(List.of(8, 9, 35, 49, 56, 34, 52, 11, 55, 454, 455, 456, 455, 456, 167, 10),
+                tags(datas.get(0)));
+    }
+
+    /*
+    The same order for a message built field by field through update() : the application sets the fields in
+    whatever order it likes, the wire does not follow it. The NoSecurityAltID group is left unset here, and
+    a group that has no entry is not written at all — not even its count.
+     */
+    @Test
+    void aMessageBuiltFieldByFieldIsWrittenInTheOrderOfTheDictionary() throws IOException {
+        final FixModel fixModel = loadModel();
+        final GlobModel globModel = new DefaultGlobModel(NewOrderSingleType.TYPE);
+        List<byte[]> datas = new ArrayList<>();
+        final FixWriter writer = createWriter(fixModel, globModel, datas);
+
+        final FixMessage message = FixMessageImpl.fromType(HeaderType.create("SENDER", "TARGET"),
+                NewOrderSingleType.TYPE, null);
+        message.update(NewOrderSingleType.securityType, "CS");   // last in the dictionary
+        message.update(NewOrderSingleType.symbol, "ACME.PA");
+        message.update(NewOrderSingleType.clOrdID, "order-1");   // first in the dictionary
+        writer.write(message);
+
+        assertEquals(List.of(8, 9, 35, 49, 56, 34, 52, 11, 55, 167, 10), tags(datas.get(0)));
+    }
+
+    private static List<Integer> tags(byte[] msg) {
+        return splitFields(msg).stream()
+                .map(f -> Integer.valueOf(f.substring(0, f.indexOf('='))))
+                .toList();
     }
 
     /*

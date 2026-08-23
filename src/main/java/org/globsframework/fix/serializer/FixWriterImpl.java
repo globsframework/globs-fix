@@ -18,6 +18,7 @@ public class FixWriterImpl implements FixWriter {
     public static final int OFFSET = 32;
     private final byte[] version;
     private final byte[] buffer = new byte[1024 * 1024];
+    private final WriteBuffer out = new WriteBuffer(buffer);
     private final byte[] utcTime = new byte[21];
     private final Publish publish;
     private final Map<GlobType, MessageFieldWrite> writeMap;
@@ -44,7 +45,6 @@ public class FixWriterImpl implements FixWriter {
 
     @Override
     synchronized public void write(FixMessage fixMessage) {
-        int at = OFFSET;
         final MutableGlob header = fixMessage.getHeader();
         final MutableGlob trailer = fixMessage.getTrailer();
         final Glob message = fixMessage.getBody();
@@ -62,9 +62,11 @@ public class FixWriterImpl implements FixWriter {
         int startAt = 0;
         int s = 0;
         try {
-            at = write(header, at);
-            at = write(fixMessage, at);
-            int endAt = write(trailer, at);
+            out.at = OFFSET;
+            write(header);
+            writeBody(fixMessage);
+            write(trailer);
+            final int endAt = out.at;
 
             final byte[] msgType = typeToMessageType.get(message.getType());
             int len = endAt - OFFSET + 4 + msgType.length; // add
@@ -72,7 +74,7 @@ public class FixWriterImpl implements FixWriter {
             final int lenInBytes = Utils.len(len);
 
             startAt = OFFSET - 2 - version.length - 3 - lenInBytes - 1 - 3 - msgType.length - 1;
-            at = startAt;
+            int at = startAt;
             buffer[at++] = '8';
             buffer[at++] = '=';
             System.arraycopy(version, 0, buffer, at, version.length);
@@ -128,33 +130,25 @@ public class FixWriterImpl implements FixWriter {
         }
     }
 
-    private int write(Glob data, int at) {
+    private void write(Glob data) {
         if (data != null) {
             final GlobType type = data.getType();
             final MessageFieldWrite fieldWrite = writeMap.get(type);
             if (fieldWrite == null) {
                 throw new RuntimeException("Not writers found for type: " + type.getName());
             }
-            return fieldWrite.writeAt(buffer, at, data);
+            fieldWrite.writeAt(out, data);
         }
-        return at;
     }
 
-    private int write(FixMessage data, int at) {
+    private void writeBody(FixMessage data) {
         if (data != null) {
             final GlobType type = data.getBody().getType();
             final MessageFieldWrite fieldWrite = writeMap.get(type);
             if (fieldWrite == null) {
                 throw new RuntimeException("Not writers found for type: " + type.getName());
             }
-            final FixMessage.UpdatedField updatedFields = data.getUpdatedFields();
-            if (updatedFields == null) {
-                return fieldWrite.writeAt(buffer, at, data.getBody());
-            }
-            else {
-                return fieldWrite.writeAt(buffer, at, data.getBody(), updatedFields.indexFields(), updatedFields.len());
-            }
+            fieldWrite.writeAt(out, data.getBody());
         }
-        return at;
     }
 }

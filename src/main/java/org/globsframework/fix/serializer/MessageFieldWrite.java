@@ -1,36 +1,21 @@
 package org.globsframework.fix.serializer;
 
-import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.Glob;
 
-import java.util.Arrays;
-import java.util.Map;
-
+/**
+ * The writers of one message, header or trailer, in the order the dictionary declares them — which is the
+ * order they go on the wire.
+ */
 public final class MessageFieldWrite {
     private final FieldWrite[] writes;
-    private final FieldWrite[] indexedWrites;
 
-    public MessageFieldWrite(GlobType type, Map<Field, FieldWrite> writes) {
-        this.writes = writes.values().toArray(new FieldWrite[0]);
-        final int max = Arrays.stream(type.getFields()).map(Field::getIndex).max(Integer::compareTo).get();
-        indexedWrites = new FieldWrite[max + 1];
-        for (Map.Entry<Field, FieldWrite> fieldFieldWriteEntry : writes.entrySet()) {
-            indexedWrites[fieldFieldWriteEntry.getKey().getIndex()] = fieldFieldWriteEntry.getValue();
-        }
+    public MessageFieldWrite(FieldWrite[] fieldWrites) {
+        this.writes = fieldWrites;
     }
 
-    public int writeAt(byte[] buffer, int at, Glob data, short[] fields, int size) {
-        for (int i = 0; i < size; i++) {
-            at = indexedWrites[fields[i]].writeAt(buffer, at, data);
-        }
-        return at;
-    }
-
-    public int writeAt(byte[] buffer, int at, Glob data) {
+    public void writeAt(WriteBuffer out, Glob data) {
         for (FieldWrite fieldWrite : writes) {
-            at = fieldWrite.writeAt(buffer, at, data);
+            fieldWrite.writeAt(out, data);
         }
-        return at;
     }
 }

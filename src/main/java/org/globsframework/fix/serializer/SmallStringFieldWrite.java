@@ -13,11 +13,12 @@ record SmallStringFieldWrite(byte[] id, GlobGetStringAccessor accessor) implemen
     }
 
     @Override
-    public int writeAt(byte[] buffer, int at, Glob data) {
+    public void writeAt(WriteBuffer out, Glob data) {
         final String s = accessor.get(data);
         int l;
         if (s != null && (l = s.length()) > 0 ) {
-            at = Utils.transfert(buffer, at, id);
+            final byte[] buffer = out.buffer;
+            int at = Utils.transfert(buffer, out.at, id);
             buffer[at++] = '=';
             if (l == 1) {
                 buffer[at++] = (byte)s.charAt(0);
@@ -25,8 +26,8 @@ record SmallStringFieldWrite(byte[] id, GlobGetStringAccessor accessor) implemen
                 at = Utils.transfert(buffer, at, s);
             }
             buffer[at++] = 0x1;
+            out.at = at;
         }
-        return at;
     }
 
 }

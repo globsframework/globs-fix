@@ -60,12 +60,15 @@ Read the rest the way globs-grpc had to: **generating the Globs is a small loss 
 −6 to −10 % on read), because one accessor class per field means more receivers at the same megamorphic call sites —
 `MessageFieldWrite.writeAt` loops over a `FieldWrite[]`, one call site for every writer class in the process,
 and reading ends on `DirectFieldReader.read`, one call site for every reader class. That is exactly the state
-globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there). The same move is
-possible here in principle, but *not* with the SPI as it stands: `FieldWrite.writeAt` returns the new buffer
-index and `DirectFieldReader.read` takes the value's byte range, where `FromGlobFunction` /
-`ToGlobFunction` return void and carry only objects. It would take a third emitter in globs-generate,
-over an int-returning function interface — the ASM is ~40 lines from what `AsmCallerWriteGenerator` already
-does — and until then converting the leaves to records buys nothing, there being no constant receiver to fold.
+globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there).
+
+The write side is now shaped for that move: `FieldWrite.writeAt(WriteBuffer, Glob)` returns **void** and
+advances `WriteBuffer.at` in place, which is the shape `FromGlobFunction` has — an int-returning method
+cannot be driven by a generated caller. Carrying the index through the object rather than through the return
+value costs **−2 to −3 % on write** measured on DEFAULT (2.76 M → 2.69–2.71 M, `read` unchanged): a store and a
+reload per field where there used to be a register. That is the deposit on the caller, not a gain in itself.
+The reader side is not there yet — `DirectFieldReader.read` takes the value's byte range, where
+`ToGlobFunction` carries only objects.
 
 ## Architecture
 
@@ -124,11 +127,21 @@ closures (readers keyed by tag in an `IntHashMap`). Each closure captures a type
 `GlobGetAccessor` on the to-Glob side, a `GlobSetAccessor` on the from-Glob side — so serialization is a straight
 loop over primitives and neither direction looks a `Field` up on a `Glob`.
 
-`FixWriterImpl` owns a single 1 MB `byte[]`. It writes the body starting at `OFFSET = 32` and then
-**back-fills** `8=BeginString`, `9=BodyLength` and `35=MsgType` in the bytes *before* offset 32, asserting
-it lands exactly on 32; the header prefix must therefore fit in those 32 bytes. Checksum (tag 10) is
-summed over the finished message. `MsgSeqNum` and `SendingTime` are filled in only if unset, and the
-sequence number is reverted if writing throws.
+**The writers are held in dictionary order, and that is the wire order** — `newOrderedWrites()` in the
+builder, a `LinkedHashMap` at every level (message, flattened component, group). FIX only *mandates* it
+inside a repeating group, whose entries every engine frames on the delimiter — the group's first field in
+the dictionary — but a `Field` hashes on its identity, so a `HashMap` here would also make the layout of
+every message depend on what the JVM allocated before the `GlobType` was built.
+`FixProtocolConformanceTest` pins the order, on a whole Glob and on a message built through
+`FixMessage.update`. Every message is written whole : a field that is not set writes nothing, and a group
+with no entry is omitted entirely, count included.
+
+`FixWriterImpl` owns a single 1 MB `byte[]`, and the single `WriteBuffer` that wraps it and carries the
+write index the `FieldWrite`s advance — both reused for every message. It writes the body starting at
+`OFFSET = 32` and then **back-fills** `8=BeginString`, `9=BodyLength` and `35=MsgType` in the bytes
+*before* offset 32, asserting it lands exactly on 32; the header prefix must therefore fit in those 32
+bytes. Checksum (tag 10) is summed over the finished message. `MsgSeqNum` and `SendingTime` are filled in
+only if unset, and the sequence number is reverted if writing throws.
 
 `FixReaderImpl` streams from a `ByteReader` with a 10 KB buffer, dispatching on tag id. `MsgType` routing
 uses `oneLetter`/`twoLetters` arrays rather than a map lookup. A message that frames and checksums
@@ -176,7 +189,9 @@ timestamps without allocating; use `autoRefreshUTC(scheduler)` in production and
 
 - Java 22 pattern-matching `switch` over `Field` / `FixElement` subtypes is the idiom for both builders;
   follow it rather than adding `instanceof` chains.
-- Hot-path code writes into caller-supplied `byte[]` at an index and returns the new index
-  (`Utils.transfert`, `Utils.transfertInt`). Avoid allocation and avoid growing these methods — commit
-  `ab92e9b` deliberately reduced hot-method size for JIT inlining.
+- The `Utils` helpers write into a caller-supplied `byte[]` at an index and return the new index
+  (`Utils.transfert`, `Utils.transfertInt`); a `FieldWrite`, on the outer boundary, takes a `WriteBuffer`
+  instead and stores the index back into it — read `out.at` into a local, run the helpers over it, store it
+  once at the end, and leave it untouched when the field writes nothing. Avoid allocation and avoid growing
+  these methods — commit `ab92e9b` deliberately reduced hot-method size for JIT inlining.
 - ISO-8859-1 everywhere on the wire; SOH is `0x1`.

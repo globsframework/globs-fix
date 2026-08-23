@@ -54,15 +54,16 @@ abstract class DataFieldWrite implements FieldWrite {
             this.accessor = accessor;
         }
 
-        public int writeAt(byte[] buffer, int at, Glob data) {
+        public void writeAt(WriteBuffer out, Glob data) {
             final byte[] value = accessor.get(data);
             if (value == null) {
-                return at;
+                return;
             }
-            at = writeLength(buffer, at, value.length);
+            final byte[] buffer = out.buffer;
+            int at = writeLength(buffer, out.at, value.length);
             at = Utils.transfert(buffer, at, value);
             buffer[at++] = 0x1;
-            return at;
+            out.at = at;
         }
     }
 
@@ -78,15 +79,16 @@ abstract class DataFieldWrite implements FieldWrite {
             this.accessor = accessor;
         }
 
-        public int writeAt(byte[] buffer, int at, Glob data) {
+        public void writeAt(WriteBuffer out, Glob data) {
             final String value = accessor.get(data);
             if (value == null) {
-                return at;
+                return;
             }
-            at = writeLength(buffer, at, value.length());
+            final byte[] buffer = out.buffer;
+            int at = writeLength(buffer, out.at, value.length());
             at = Utils.transfert(buffer, at, value);
             buffer[at++] = 0x1;
-            return at;
+            out.at = at;
         }
     }
 }

@@ -13,14 +13,15 @@ record IntegerFieldWrite(byte[] id, GlobGetIntAccessor accessor) implements Fiel
     }
 
     @Override
-    public int writeAt(byte[] buffer, int at, Glob data) {
+    public void writeAt(WriteBuffer out, Glob data) {
         final Integer value = accessor.get(data);
         if (value != null) {
-            at = Utils.transfert(buffer, at, id);
+            final byte[] buffer = out.buffer;
+            int at = Utils.transfert(buffer, out.at, id);
             buffer[at++] = '=';
             at = Utils.transfertInt(buffer, at, value);
             buffer[at++] = 0x1;
+            out.at = at;
         }
-        return at;
     }
 }
