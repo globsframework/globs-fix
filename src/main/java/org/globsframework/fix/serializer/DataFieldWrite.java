@@ -55,7 +55,14 @@ abstract class DataFieldWrite implements FieldWrite {
         }
 
         public void writeAt(WriteBuffer out, Glob data) {
-            final byte[] value = accessor.get(data);
+            write(out, accessor.get(data));
+        }
+
+        public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+            write(out, (byte[]) value);
+        }
+
+        private void write(WriteBuffer out, byte[] value) {
             if (value == null) {
                 return;
             }
@@ -80,7 +87,14 @@ abstract class DataFieldWrite implements FieldWrite {
         }
 
         public void writeAt(WriteBuffer out, Glob data) {
-            final String value = accessor.get(data);
+            write(out, accessor.get(data));
+        }
+
+        public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+            write(out, (String) value);
+        }
+
+        private void write(WriteBuffer out, String value) {
             if (value == null) {
                 return;
             }

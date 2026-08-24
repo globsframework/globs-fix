@@ -24,7 +24,12 @@ import java.util.*;
 
 public class SerializerFixWriterBuilder implements FixWriterBuilder {
     private static final Logger log = LoggerFactory.getLogger(SerializerFixWriterBuilder.class);
-    private static final FieldWrite WRITE_NOTHING = (out, data) -> {
+    private static final FieldWrite WRITE_NOTHING = new FieldWrite() {
+        public void writeAt(WriteBuffer out, Glob data) {
+        }
+
+        public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+        }
     };
     private static final Set<Integer> headerFieldToIgnore = Set.of(8, 9, 35);
     private static final Set<Integer> trailerFieldToIgnore = Set.of(10);
@@ -76,25 +81,25 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
             } else {
                 final Map<Field, FieldWrite> fieldWrites = newOrderedWrites();
                 extracted(fieldWrites, elements, messageType);
-                writerPerMessageType.put(messageType, new MessageFieldWrite(fieldWrites.values().toArray(new FieldWrite[0])));
+                writerPerMessageType.put(messageType, new MessageFieldWrite(messageType, fieldWrites));
                 messageTypePerType.put(messageType, message.getMsgType().getBytes(StandardCharsets.ISO_8859_1));
             }
         }
         writerPerMessageType.put(headerType,
-                new MessageFieldWrite(extracted(newOrderedWrites(), fixModel.getHeader()
+                new MessageFieldWrite(headerType, extracted(newOrderedWrites(), fixModel.getHeader()
                         .getElements()
                         .stream()
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
                                               !headerFieldToIgnore.contains(((FixField) fixElement).getId()))
-                        .toList(), headerType).values().toArray(new FieldWrite[0])));
+                        .toList(), headerType)));
 
         writerPerMessageType.put(trailerType,
-                new MessageFieldWrite(extracted(newOrderedWrites(), fixModel.getTrailer()
+                new MessageFieldWrite(trailerType, extracted(newOrderedWrites(), fixModel.getTrailer()
                         .getElements()
                         .stream()
                         .filter(fixElement -> !(fixElement instanceof FixField) ||
                                               !trailerFieldToIgnore.contains(((FixField) fixElement).getId()))
-                        .toList(), trailerType).values().toArray(new FieldWrite[0])));
+                        .toList(), trailerType)));
         return new SerializerFixWriterBuilder(writerPerMessageType, messageTypePerType, fixModel,
                 trailerType, headerDesc, utcFormater);
     }
@@ -143,26 +148,17 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                         declareDataField(fieldWrites, fields, previousFixField, fixField, field, messageType);
                     } else if (field != null) {
                         switch (field) {
-                            case StringField stringField -> fieldWrites.put(field,
-                                    StringFieldWrite.create(fixField, fixField.getId(), messageType.getGetAccessor(stringField)
-                            ));
+                            case StringField stringField -> fieldWrites.put(field, StringFieldWrite.create(
+                                    fixField, fixField.getId(), messageType.getGetAccessor(stringField)));
                             case IntegerField integerField -> fieldWrites.put(field, new IntegerFieldWrite(
-                                    fixField.getId(),
-                                    messageType.getGetAccessor(integerField)
-                            ));
+                                    fixField.getId(), messageType.getGetAccessor(integerField)));
                             case BooleanField booleanField -> fieldWrites.put(field, new BooleanFieldWrite(
-                                    fixField.getId(),
-                                    messageType.getGetAccessor(booleanField)
-                            ));
+                                    fixField.getId(), messageType.getGetAccessor(booleanField)));
                             case DateTimeField dateTimeField -> fieldWrites.put(field, new DateTimeFieldWrite(
-                                    fixField.getId(),
-                                    messageType.getGetAccessor(dateTimeField)
-                            ));
+                                    fixField.getId(), messageType.getGetAccessor(dateTimeField)));
                             case StringArrayField stringArrayField ->
                                     fieldWrites.put(field, new MultipleValueStringFieldWrite(
-                                            fixField.getId(),
-                                            messageType.getGetAccessor(stringArrayField)
-                                    ));
+                                            fixField.getId(), messageType.getGetAccessor(stringArrayField)));
                             default ->
                                     throw new RuntimeException("Type " + field.getDataType() + " not managed on " + field.getFullName());
                         }
@@ -180,9 +176,11 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                     final Field field = fields.get(firstFieldName);
                     if (field != null) {
                         if (field instanceof GlobArrayField<?> globArrayField) {
-                            final Map<Field, FieldWrite> writes = extracted(newOrderedWrites(), fixGroup.getElements(), globArrayField.getTargetType());
+                            final GlobType entryType = globArrayField.getTargetType();
+                            final Map<Field, FieldWrite> writes = extracted(newOrderedWrites(), fixGroup.getElements(), entryType);
                             final byte[] idBytes = Integer.toString(fixGroup.getCountField().getId()).getBytes(StandardCharsets.ISO_8859_1);
-                            fieldWrites.put(field, new GroupFieldWrite(globArrayField, idBytes, writes.values().toArray(new FieldWrite[0])));
+                            fieldWrites.put(field, new GroupFieldWrite(globArrayField, idBytes,
+                                    new MessageFieldWrite(entryType, writes)));
                         } else {
                             throw new RuntimeException("Field " + firstFieldName + " is of type " + field.getDataType() +
                                                        "  but should be a Glob Array Field " + field.getFullName());
@@ -235,26 +233,33 @@ public class SerializerFixWriterBuilder implements FixWriterBuilder {
                 msgSeqProvider, checksum, headerDesc, utcFormater);
     }
 
+    /** An entry of a repeating group is a message of its own : its own writers, its own caller. */
     private record GroupFieldWrite(GlobArrayField<?> globArrayField, byte[] idBytes,
-                                   FieldWrite[] writes) implements FieldWrite {
+                                   MessageFieldWrite entry) implements FieldWrite {
 
         @Override
-            public void writeAt(WriteBuffer out, Glob data) {
-                // an absent group is absent from the wire : FIX has no count of zero, the whole group is omitted
-                final Glob[] globs = data.getOrEmpty(globArrayField);
-                if (globs.length > 0) {
-                    final byte[] buffer = out.buffer;
-                    int at = Utils.transfert(buffer, out.at, idBytes);
-                    buffer[at++] = '=';
-                    at = Utils.transfertInt(buffer, at, globs.length);
-                    buffer[at++] = 0x1;
-                    out.at = at;
-                    for (Glob glob : globs) {
-                        for (FieldWrite write : writes) {
-                            write.writeAt(out, glob);
-                        }
-                    }
+        public void writeAt(WriteBuffer out, Glob data) {
+            write(out, data.getOrEmpty(globArrayField));
+        }
+
+        @Override
+        public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+            write(out, (Glob[]) value);
+        }
+
+        private void write(WriteBuffer out, Glob[] globs) {
+            // an absent group is absent from the wire : FIX has no count of zero, the whole group is omitted
+            if (globs != null && globs.length > 0) {
+                final byte[] buffer = out.buffer;
+                int at = Utils.transfert(buffer, out.at, idBytes);
+                buffer[at++] = '=';
+                at = Utils.transfertInt(buffer, at, globs.length);
+                buffer[at++] = 0x1;
+                out.at = at;
+                for (Glob glob : globs) {
+                    entry.writeAt(out, glob);
                 }
             }
         }
+    }
 }

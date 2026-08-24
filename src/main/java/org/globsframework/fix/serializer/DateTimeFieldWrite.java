@@ -19,7 +19,15 @@ record DateTimeFieldWrite(byte[] id, GlobGetDateTimeAccessor accessor) implement
 
     @Override
     public void writeAt(WriteBuffer out, Glob data) {
-        final ZonedDateTime value = accessor.get(data);
+        write(out, id, accessor.get(data));
+    }
+
+    @Override
+    public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+        write(out, id, (ZonedDateTime) value);
+    }
+
+    private static void write(WriteBuffer out, byte[] id, ZonedDateTime value) {
         if (value != null) {
             final byte[] buffer = out.buffer;
             int at = Utils.transfert(buffer, out.at, id);

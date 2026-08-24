@@ -168,7 +168,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>5.11-SNAPSHOT</version>
+            <version>5.12-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.globsframework</groupId>
@@ -201,7 +201,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-generate</artifactId>
-            <version>5.3-SNAPSHOT</version>
+            <version>5.4-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>

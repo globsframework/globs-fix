@@ -1,7 +1,6 @@
 package org.globsframework.fix.serializer;
 
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.globaccessor.get.GlobGetStringAccessor;
 import org.globsframework.core.model.globaccessor.get.GlobGetStringArrayAccessor;
 import org.globsframework.core.utils.Strings;
 import org.globsframework.fix.Utils;
@@ -16,15 +15,20 @@ record MultipleValueStringFieldWrite(byte[] id, GlobGetStringArrayAccessor acces
     }
 
     public static FieldWrite create(FixField fixField, int id, GlobGetStringArrayAccessor getAccessor) {
-        if (fixField.getMaxEnumLength() == 1) {
-            return new MultipleValueStringFieldWrite(id, getAccessor);
-        }
         return new MultipleValueStringFieldWrite(id, getAccessor);
     }
 
     @Override
     public void writeAt(WriteBuffer out, Glob data) {
-        final String[] s = accessor.get(data);
+        write(out, id, accessor.get(data));
+    }
+
+    @Override
+    public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+        write(out, id, (String[]) value);
+    }
+
+    private static void write(WriteBuffer out, byte[] id, String[] s) {
         if (s != null && s.length > 0) {
             final byte[] buffer = out.buffer;
             int at = Utils.transfert(buffer, out.at, id);

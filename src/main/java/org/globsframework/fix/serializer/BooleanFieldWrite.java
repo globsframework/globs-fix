@@ -14,7 +14,15 @@ record BooleanFieldWrite(byte[] id, GlobGetBooleanAccessor accessor) implements 
 
     @Override
     public void writeAt(WriteBuffer out, Glob data) {
-        final Boolean value = accessor.get(data);
+        write(out, id, accessor.get(data));
+    }
+
+    @Override
+    public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+        write(out, id, (Boolean) value);
+    }
+
+    private static void write(WriteBuffer out, byte[] id, Boolean value) {
         if (value != null) {
             final byte[] buffer = out.buffer;
             int at = Utils.transfert(buffer, out.at, id);

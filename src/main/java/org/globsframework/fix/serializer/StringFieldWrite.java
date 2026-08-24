@@ -22,7 +22,15 @@ record StringFieldWrite(byte[] id, GlobGetStringAccessor accessor) implements Fi
 
     @Override
     public void writeAt(WriteBuffer out, Glob data) {
-        final String s = accessor.get(data);
+        write(out, id, accessor.get(data));
+    }
+
+    @Override
+    public void call(boolean isSet, boolean isNull, Object value, WriteBuffer out, Void unused) {
+        write(out, id, (String) value);
+    }
+
+    private static void write(WriteBuffer out, byte[] id, String s) {
         if (s != null) {
             final byte[] buffer = out.buffer;
             int at = Utils.transfert(buffer, out.at, id);
@@ -32,5 +40,4 @@ record StringFieldWrite(byte[] id, GlobGetStringAccessor accessor) implements Fi
             out.at = at;
         }
     }
-
 }

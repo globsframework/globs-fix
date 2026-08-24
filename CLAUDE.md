@@ -56,19 +56,44 @@ int and boolean) is worth **+21 % on DEFAULT and +14 to +15 % on the generated f
 untouched — it already went through `GlobGetAccessor`. The readers keep the `Field` too, but only for
 `isSet`, which the set accessor does not cover.
 
-Read the rest the way globs-grpc had to: **generating the Globs is a small loss here** (−4 to −7 % on write,
-−6 to −10 % on read), because one accessor class per field means more receivers at the same megamorphic call sites —
-`MessageFieldWrite.writeAt` loops over a `FieldWrite[]`, one call site for every writer class in the process,
-and reading ends on `DirectFieldReader.read`, one call site for every reader class. That is exactly the state
-globs-grpc was in before it drove its leaves through a generated caller (104k → 229k there).
+Those three columns are the loop: `MessageFieldWrite` walking a `FieldWrite[]`, one call site for every
+writer class in the process, and reading ending on `DirectFieldReader.read`, one call site for every reader
+class. Generating the Globs was a small loss there (−4 to −7 % on write, −6 to −10 % on read), one accessor
+class per field putting yet more receivers on the same megamorphic sites — the state globs-grpc was in
+before it drove its leaves through a generated caller.
 
-The write side is now shaped for that move: `FieldWrite.writeAt(WriteBuffer, Glob)` returns **void** and
-advances `WriteBuffer.at` in place, which is the shape `FromGlobFunction` has — an int-returning method
-cannot be driven by a generated caller. Carrying the index through the object rather than through the return
-value costs **−2 to −3 % on write** measured on DEFAULT (2.76 M → 2.69–2.71 M, `read` unchanged): a store and a
-reload per field where there used to be a register. That is the deposit on the caller, not a gain in itself.
-The reader side is not there yet — `DirectFieldReader.read` takes the value's byte range, where
-`ToGlobFunction` carries only objects.
+### The write side through a caller
+
+`MessageFieldWrite` now asks core for a `FromGlobCaller` and only loops when it gets none. Measured the same
+way (4 forks; `read` is untouched by any of this and stays at 1.40 M):
+
+| `write` | DEFAULT | OBJECT | PRIMITIVE |
+| --- | --- | --- | --- |
+| the loop | 2.71 M | 2.72 M | 2.64 M |
+| **through the caller** | **3.55 M** | **3.72 M** | **3.62 M** |
+| | +31 % | +37 % | +37 % |
+
+On the generated flavours the caller comes from the type's own factory and costs nothing to turn on — which
+is what reverses the "generating is a loss" column above, for `write`. On DEFAULT it takes the service, and
+that is the configuration to prefer: **3.55 M without generating a single Glob class**, 5 % behind the best
+generated flavour and without the inlining damage a generated `doGet`/`doSet` does to application code
+(globs-generate's CLAUDE.md measures that separately).
+
+```bash
+java -cp ... org.openjdk.jmh.Main FixMessagePerf -p flavour=DEFAULT \
+     -jvmArgsAppend "-Dglobs.caller.fromGlob=org.globsframework.model.generator.AsmCallerGeneratorService"
+```
+
+Two things had to happen first, and both are worth knowing before touching this code. `FieldWrite.writeAt`
+used to return the new buffer index; it returns **void** and advances `WriteBuffer.at` in place, which is
+the shape `FromGlobFunction` has. That cost −2 to −3 % on its own (2.76 M → 2.71 M) and is the deposit, not
+a gain. And core's caller SPI had to learn an **order**: it walked the fields by index, where FIX needs the
+dictionary's — see `MessageFieldWrite`.
+
+The reader is not there yet, and it is now the slower half by far (1.40 M against 3.55 M).
+`DirectFieldReader.read` takes the value's byte range where `ToGlobFunction` carries only objects — the same
+one-context-object move `WriteBuffer` was for the writers, plus turning `FixReaderImpl`'s loop into a
+`KeySource`, which is a bigger job than this one was.
 
 ## Architecture
 
@@ -135,6 +160,28 @@ every message depend on what the JVM allocated before the `GlobType` was built.
 `FixProtocolConformanceTest` pins the order, on a whole Glob and on a message built through
 `FixMessage.update`. Every message is written whole : a field that is not set writes nothing, and a group
 with no entry is omitted entirely, count included.
+
+**`MessageFieldWrite` runs those writers one of two ways**, over one rendering per field:
+
+- a `FromGlobCaller` from core's `org.globsframework.core.model.caller`, asked for through
+  `generatedCallerFor("fix.write", type, functions, order)`. The calls are unrolled, one monomorphic call
+  site per field, and the values are read out of the Glob by the emitted code — `FieldWrite.call`, the
+  `FromGlobFunction` side, takes the value it is handed. `order` is the map's key order, i.e. the
+  dictionary's: a caller walks the fields by index unless it is told otherwise, and `HeaderType` is exactly
+  a type that declares them in another order (SendingTime before PossDupFlag, where FIX 4.4 has 43 before
+  52). The fields FIX does not bind are not in the map, so no call site is emitted for them.
+- the loop, when nothing in the JVM generates. `FieldWrite.writeAt` then reads the value itself through the
+  typed `GlobGetAccessor` it holds.
+
+Both entry points are on the same writer class and share one `private static write(...)` — that is why
+there is no duplicated rendering, and why the accessor stays a field even when the caller is used. **Do not
+hoist that read into the loop** (a `GlobGetAccessor[]` walked next to the dispatch): it turns one call site
+per writer class into one for all of them and measured **−27 %** on write. And it is `generatedCallerFor`
+rather than `callerFor` for the same reason — the `LoopFromGlobCaller` core would hand back reads through
+`Glob.getValue(Field)` and is a worse fallback than the one here.
+
+`GeneratedWriteCallerTest` is what holds the two together: the same message rendered both ways, asserted
+byte for byte, plus the tag order under the caller.
 
 `FixWriterImpl` owns a single 1 MB `byte[]`, and the single `WriteBuffer` that wraps it and carries the
 write index the `FieldWrite`s advance — both reused for every message. It writes the body starting at
