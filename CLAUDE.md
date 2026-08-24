@@ -90,10 +90,36 @@ the shape `FromGlobFunction` has. That cost −2 to −3 % on its own (2.76 M �
 a gain. And core's caller SPI had to learn an **order**: it walked the fields by index, where FIX needs the
 dictionary's — see `MessageFieldWrite`.
 
-The reader is not there yet, and it is now the slower half by far (1.40 M against 3.55 M).
-`DirectFieldReader.read` takes the value's byte range where `ToGlobFunction` carries only objects — the same
-one-context-object move `WriteBuffer` was for the writers, plus turning `FixReaderImpl`'s loop into a
-`KeySource`, which is a bigger job than this one was.
+### The read side does not want one — measured
+
+The reader is the slower half by far (1.39 M against 3.55 M) and is the obvious next candidate. **It was
+tried and it loses.** The branch `read-caller-experiment` carries the whole thing, working and green; do not
+redo it without reading this. `read` on DEFAULT, against 1.377 M ops/s for the loop:
+
+| | ops/s | |
+| --- | --- | --- |
+| readers taking a context object instead of `(from, to, buffer)` | 1.249 M | −9 % |
+| … driven by a generated `ToGlobCaller`, first cut | 1.084 M | −23 % |
+| … keys densified, so a `tableswitch` and not a `lookupswitch` | 1.099 M | −22 % |
+| … `readNext()` hoisted back into `nextKey()` | 1.294 M | −8 % |
+
+Three things to keep from that, all of them non-obvious:
+
+- **The context object alone costs 9 %**, where `WriteBuffer` cost 2 to 3 % on the write side. Three values
+  passed in registers become three field loads per field, and reading is the more memory-bound of the two.
+  It buys nothing unless the caller that needs it pays for itself.
+- **`readNext()` is what reading costs**, not the dispatch. Moving it out of the loop and into the readers —
+  4 call sites becoming one per reader — cost 18 % on its own. That is also why the caller cannot win here:
+  on write the per-field work is a handful of byte moves, so the megamorphic dispatch is a large share of it;
+  on read it is the scan, so removing the dispatch saves little.
+- **A FIX tag is a sparse key.** The generator emits a `lookupswitch` — a binary search — past
+  `span > 2n + 8`, where the other codecs on this SPI key on a dense field index and get a `tableswitch`.
+  Densifying the keys is a one-array indirection and was worth ~1 %, so that is not what was wrong, but it is
+  a trap worth knowing about.
+
+What is left against the loop is the callback protocol itself : a `KeySource` call, two flags — one for a
+reader that does not consume its tag, one for the group that leaves the next one ready — and a struct
+indirection per tag, where the loop has direct control flow.
 
 ## Architecture
 

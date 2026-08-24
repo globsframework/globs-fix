@@ -16,6 +16,7 @@ import org.globsframework.fix.fix44.app.NewOrderSingleType;
 import org.globsframework.fix.fix44.components.InstrumentType;
 import org.globsframework.model.generator.AsmCallerGeneratorService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -37,6 +38,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * dictionary's (it declares SendingTime before PossDupFlag, where FIX 4.4 has 43 before 52).
  */
 public class GeneratedWriteCallerTest {
+
+    /* also before : the suite may be run as a whole with the property already set on the JVM */
+    @BeforeEach
+    public void setUp() {
+        tearDown();
+    }
 
     @AfterEach
     public void tearDown() {
