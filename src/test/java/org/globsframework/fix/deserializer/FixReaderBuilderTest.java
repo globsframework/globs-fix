@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
@@ -207,7 +206,6 @@ class FixReaderBuilderTest {
 
         public static final StringField Symbol;
 
-        @Target(SecurityAltType.class)
         public static final GlobArrayField<SecurityAltType> securityAltID;
 
 
@@ -234,7 +232,6 @@ class FixReaderBuilderTest {
 
             public static final StringField Symbol;
 
-            @Target(SecurityAltType.class)
             public static final GlobArrayField<SecurityAltType> securityAltID;
 
             public static Glob create(String symbol, Glob... sec) {

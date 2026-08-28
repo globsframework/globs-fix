@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.BytesField;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.StringField;
@@ -188,7 +187,8 @@ class FixDataFieldTest {
     @Test
     void dataFieldsAreGeneratedAsBytesFields() throws IOException {
         final GlobType news = Arrays.stream(FixModelToGlobType.toType(readDictionary()).messages())
-                .filter(message -> message.getAnnotation(FixMessageType.UNIQUE_KEY).get(FixMessageType.name).equals("B"))
+                .filter(message -> message.getAnnotation(FixMessageType.UNIQUE_KEY).
+                        get(FixMessageType.name).equals("News"))
                 .findFirst().orElseThrow();
 
         assertInstanceOf(BytesField.class, news.getField("RawData"));
@@ -272,7 +272,6 @@ class FixDataFieldTest {
         public static final StringField headline;
         public static final BytesField rawData;
 
-        @Target(LineType.class)
         public static final GlobArrayField<LineType> lines;
 
         static {

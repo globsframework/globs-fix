@@ -43,7 +43,7 @@ public class FixModelToGlobType {
         List<GlobType> messageTypes = new ArrayList<>();
         for (FixMessageDescriptor fixMessageDescriptor : fixModel.getMessages()) {
             GlobTypeBuilder messageBuilder = DefaultGlobTypeBuilder.init(fixMessageDescriptor.getName());
-            messageBuilder.addAnnotation(FixMessageType.create(fixMessageDescriptor.getMsgType()));
+            messageBuilder.addAnnotation(FixMessageType.create(fixMessageDescriptor.getName()));
             createGlobType(fixMessageDescriptor.getElements(), messageBuilder);
             messageTypes.add(messageBuilder.build());
         }

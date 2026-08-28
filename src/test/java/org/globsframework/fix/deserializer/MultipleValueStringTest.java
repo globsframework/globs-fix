@@ -42,7 +42,7 @@ class MultipleValueStringTest {
     void multipleValueStringIsMappedToAStringArrayField() throws IOException {
         final GlobType newOrderSingle = Arrays.stream(FixModelToGlobType.toType(readDictionary()).messages())
                 .filter(message -> message.getAnnotation(FixMessageType.UNIQUE_KEY)
-                        .get(FixMessageType.name).equals("D"))
+                        .get(FixMessageType.name).equals("NewOrderSingle"))
                 .findFirst()
                 .orElseThrow();
         assertInstanceOf(StringArrayField.class, newOrderSingle.getField("ExecInst"));

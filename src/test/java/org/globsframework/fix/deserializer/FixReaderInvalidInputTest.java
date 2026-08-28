@@ -4,7 +4,6 @@ import org.globsframework.core.metamodel.GlobModel;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.annotations.Target;
 import org.globsframework.core.metamodel.fields.GlobArrayField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.metamodel.impl.DefaultGlobModel;
@@ -212,7 +211,6 @@ class FixReaderInvalidInputTest {
     public static class NewsType {
         public static final GlobType TYPE;
 
-        @Target(RelatedSymType.class)
         public static final GlobArrayField<RelatedSymType> relatedSym;
 
         static {

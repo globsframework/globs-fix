@@ -168,12 +168,12 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>5.12.0</version>
+            <version>5.13-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-xml</artifactId>
-            <version>5.2.0</version>
+            <version>5.3-SNAPSHOT</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.globsframework</groupId>
@@ -184,7 +184,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-gson</artifactId>
-            <version>5.3.0</version>
+            <version>5.4-SNAPSHOT</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.globsframework</groupId>

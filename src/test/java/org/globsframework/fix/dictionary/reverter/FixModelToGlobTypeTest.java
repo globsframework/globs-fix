@@ -30,7 +30,7 @@ class FixModelToGlobTypeTest {
         assertNotNull(type.header().getField("OrigSendingTime"));
         assertNotNull(type.header().getField("NoHops"));
         final Optional<GlobType> quoteRequestReject = Arrays.stream(type.messages()).filter(message -> message.getAnnotation(FixMessageType.UNIQUE_KEY)
-                        .get(FixMessageType.name).equals("AG"))
+                        .get(FixMessageType.name).equals("QuoteRequestReject"))
                 .findFirst();
         assertTrue(quoteRequestReject.isPresent());
         assertEquals("QuoteRequestReject", quoteRequestReject.get().getName());
